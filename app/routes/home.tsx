@@ -1,13 +1,13 @@
 import type { Route } from "./+types/home";
-import { Welcome } from "../welcome/welcome";
+import { EditorShell } from "../components/editor/EditorShell";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "New React Router App" },
-    { name: "description", content: "Welcome to React Router!" },
+    { title: "Yeno Editor" },
+    { name: "description", content: "Desktop-first rich text editor." },
   ];
 }
 
 export default function Home() {
-  return <Welcome />;
+  return <EditorShell />;
 }
