@@ -57,6 +57,8 @@ const editorTheme = {
 const PAGE_HEIGHT_PX = 1120;
 const PAGE_GAP_PX = 48;
 const PAGE_STRIDE_PX = PAGE_HEIGHT_PX + PAGE_GAP_PX;
+const MAX_TEXT_NODE_CHARS = 2048;
+const BENCHMARK_LINE_CHARS = 2048;
 
 export function EditorShell() {
   const [editor, setEditor] = useState<LexicalEditor | null>(null);
@@ -89,19 +91,31 @@ export function EditorShell() {
 
   const applyLoadedText = useCallback((text: string) => {
     if (!editor) return;
+    const lines = text.split("\n");
+
     editor.update(() => {
       const root = $getRoot();
       root.clear();
-      for (const line of text.split("\n")) {
+      for (const line of lines) {
         const paragraph = $createParagraphNode();
-        paragraph.append($createTextNode(line));
+        if (line.length === 0) {
+          paragraph.append($createTextNode(""));
+        } else {
+          for (let offset = 0; offset < line.length; offset += MAX_TEXT_NODE_CHARS) {
+            const chunk = line.slice(offset, offset + MAX_TEXT_NODE_CHARS);
+            paragraph.append($createTextNode(chunk));
+          }
+        }
         root.append(paragraph);
       }
     });
   }, [editor]);
 
   const onToggleMode = useCallback(() => {
-    setMode((prev) => (prev === "continuous" ? "paginated" : "continuous"));
+    setMode((prev) => {
+      const next = prev === "continuous" ? "paginated" : "continuous";
+      return next;
+    });
   }, []);
 
   useEffect(() => bindToggleModeShortcut(onToggleMode), [onToggleMode]);
@@ -132,18 +146,22 @@ export function EditorShell() {
       }
 
       const nextPage = Math.max(1, Math.min(computedPageCount, Math.floor(cursorY / PAGE_STRIDE_PX) + 1));
-      setCurrentPage(nextPage);
+      setCurrentPage((prevPage) => {
+        return prevPage === nextPage ? prevPage : nextPage;
+      });
     };
 
     updatePaginationStats();
     const container = paginatedContainerRef.current;
-    container?.addEventListener("scroll", updatePaginationStats);
-    document.addEventListener("selectionchange", updatePaginationStats);
-    const intervalId = window.setInterval(updatePaginationStats, 250);
+    const onScroll = () => updatePaginationStats();
+    const onSelectionChange = () => updatePaginationStats();
+    const intervalId = window.setInterval(() => updatePaginationStats(), 250);
+    container?.addEventListener("scroll", onScroll);
+    document.addEventListener("selectionchange", onSelectionChange);
 
     return () => {
-      container?.removeEventListener("scroll", updatePaginationStats);
-      document.removeEventListener("selectionchange", updatePaginationStats);
+      container?.removeEventListener("scroll", onScroll);
+      document.removeEventListener("selectionchange", onSelectionChange);
       window.clearInterval(intervalId);
     };
   }, [mode]);
@@ -182,7 +200,12 @@ export function EditorShell() {
     const targetBytes = 10 * 1024 * 1024;
     const seed = "0123456789abcdefghijklmnopqrstuvwxyz ";
     const chunkCount = Math.ceil(targetBytes / seed.length);
-    const content = seed.repeat(chunkCount).slice(0, targetBytes);
+    const raw = seed.repeat(chunkCount).slice(0, targetBytes);
+    const lines: string[] = [];
+    for (let offset = 0; offset < raw.length; offset += BENCHMARK_LINE_CHARS) {
+      lines.push(raw.slice(offset, offset + BENCHMARK_LINE_CHARS));
+    }
+    const content = lines.join("\n");
     const start = performance.now();
     applyLoadedText(content);
     const elapsedMs = performance.now() - start;
@@ -192,7 +215,7 @@ export function EditorShell() {
       payloadBytes: content.length,
     });
     setStatus(`Loaded synthetic 10MB text in ${Math.round(elapsedMs)}ms`);
-  }, [appendPerf, applyLoadedText, editor]);
+  }, [appendPerf, applyLoadedText, editor, mode]);
 
   const onPickImage = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {

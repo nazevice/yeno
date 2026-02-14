@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { PropsWithChildren, RefObject } from "react";
 
 interface PaginatedViewProps extends PropsWithChildren {
@@ -7,6 +8,24 @@ interface PaginatedViewProps extends PropsWithChildren {
   containerRef: RefObject<HTMLElement | null>;
 }
 
+const OVERLAY_RADIUS = 24;
+
+function buildOverlayPages(pageTotal: number, currentPage: number): number[] {
+  if (pageTotal <= OVERLAY_RADIUS * 2 + 3) {
+    return Array.from({ length: pageTotal }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([1, pageTotal]);
+  const start = Math.max(1, currentPage - OVERLAY_RADIUS);
+  const end = Math.min(pageTotal, currentPage + OVERLAY_RADIUS);
+
+  for (let page = start; page <= end; page += 1) {
+    pages.add(page);
+  }
+
+  return Array.from(pages).sort((a, b) => a - b);
+}
+
 export function PaginatedView({
   children,
   currentPage,
@@ -14,7 +33,8 @@ export function PaginatedView({
   pageStridePx,
   containerRef,
 }: PaginatedViewProps) {
-  const pages = Array.from({ length: Math.max(pageCount, 1) }, (_, index) => index + 1);
+  const pageTotal = Math.max(pageCount, 1);
+  const pages = useMemo(() => buildOverlayPages(pageTotal, currentPage), [currentPage, pageTotal]);
 
   return (
     <section

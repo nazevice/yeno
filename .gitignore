@@ -5,3 +5,10 @@
 # React Router
 /.react-router/
 /build/
+
+# WASM output (built from wasm/yeno-wasm)
+/public/wasm/*.js
+/public/wasm/*.wasm
+/public/wasm/*.d.ts
+/public/wasm/*.ts
+!/public/wasm/README.md

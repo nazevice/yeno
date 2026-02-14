@@ -30,19 +30,28 @@ body {
 
 .editor-content.paged {
   position: relative;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(39, 39, 42, 0.08);
+  line-height: 1.75;
+  isolation: isolate;
+}
+
+.editor-content.paged::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
   background:
     repeating-linear-gradient(
       to bottom,
-      #ffffff 0,
-      #ffffff calc(var(--page-height) - 2px),
-      #d4d4d8 calc(var(--page-height) - 2px),
-      #d4d4d8 var(--page-height),
+      transparent 0,
+      transparent calc(var(--page-height) - 2px),
+      rgba(212, 212, 216, 0.9) calc(var(--page-height) - 2px),
+      rgba(212, 212, 216, 0.9) var(--page-height),
       #e4e4e7 var(--page-height),
       #e4e4e7 calc(var(--page-height) + var(--page-gap))
     );
-  background-size: 100% calc(var(--page-height) + var(--page-gap));
-  box-shadow: 0 0 0 1px rgba(39, 39, 42, 0.08);
-  line-height: 1.75;
 }
 
 .page-separator {
@@ -67,4 +76,48 @@ body {
   font-weight: 600;
   line-height: 1;
   padding: 0.35rem 0.55rem;
+}
+
+.debug-bar {
+  position: fixed;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1000;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  pointer-events: none;
+}
+
+.debug-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #d4d4d8;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.35rem 0.7rem;
+  color: #27272a;
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(24, 24, 27, 0.08);
+}
+
+.debug-pill__label {
+  font-weight: 600;
+}
+
+.debug-pill__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-pill--warn {
+  border-color: #fbbf24;
+  color: #92400e;
+}
+
+.debug-pill--error {
+  border-color: #fca5a5;
+  color: #991b1b;
 }
