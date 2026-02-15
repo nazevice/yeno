@@ -6,8 +6,10 @@ import {
 } from "lexical";
 import { invoke } from "@tauri-apps/api/core";
 
+import { $createImageNode } from "~/components/editor/nodes/ImageNode";
 import { applyMetadataRanges } from "./applyRanges";
-import type { DocumentPayload, PerfSnapshot } from "./schema";
+import { splitLineByImageTokens } from "./imageToken";
+import type { AssetRef, DocumentPayload, PerfSnapshot } from "./schema";
 
 const MAX_TEXT_NODE_CHARS = 2048;
 
@@ -43,26 +45,46 @@ export async function loadDocument(path: string): Promise<{
   return { payload, perf, text: rebuildText(payload) };
 }
 
-export function applyLoadedPayload(editor: LexicalEditor, payload: DocumentPayload): void {
-  const text = rebuildText(payload);
-  const lines = text.split("\n");
-
+export function applyContentToEditor(
+  editor: LexicalEditor,
+  text: string,
+  assets: AssetRef[],
+): void {
   editor.update(() => {
     const root = $getRoot();
     root.clear();
+    const lines = text.split("\n");
+
     for (const line of lines) {
       const paragraph = $createParagraphNode();
-      if (line.length === 0) {
-        paragraph.append($createTextNode(""));
-      } else {
-        for (let offset = 0; offset < line.length; offset += MAX_TEXT_NODE_CHARS) {
-          const chunk = line.slice(offset, offset + MAX_TEXT_NODE_CHARS);
-          paragraph.append($createTextNode(chunk));
+      const segments = splitLineByImageTokens(line);
+
+      for (const seg of segments) {
+        if (seg.type === "text") {
+          if (seg.value.length === 0) {
+            paragraph.append($createTextNode(""));
+          } else {
+            for (let offset = 0; offset < seg.value.length; offset += MAX_TEXT_NODE_CHARS) {
+              const chunk = seg.value.slice(offset, offset + MAX_TEXT_NODE_CHARS);
+              paragraph.append($createTextNode(chunk));
+            }
+          }
+        } else {
+          paragraph.append(
+            $createImageNode({
+              assetName: seg.name ?? "",
+              alt: seg.alt ?? seg.name ?? "",
+            }),
+          );
         }
       }
       root.append(paragraph);
     }
   });
+}
+
+export function applyLoadedPayload(editor: LexicalEditor, payload: DocumentPayload): void {
+  applyContentToEditor(editor, rebuildText(payload), payload.assets ?? []);
 
   const ranges = payload.metadata?.ranges;
   if (ranges?.length) {

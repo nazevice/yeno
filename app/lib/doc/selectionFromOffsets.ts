@@ -2,6 +2,12 @@ import type { LexicalNode, PointType } from "lexical";
 import { $createPoint, $isElementNode, $isTextNode } from "lexical";
 import type { RootNode } from "lexical";
 
+const IMAGE_NODE_TYPE = "yeno-image";
+
+function isImageNode(node: LexicalNode): boolean {
+  return node.getType() === IMAGE_NODE_TYPE;
+}
+
 export interface OffsetPoints {
   anchor: PointType;
   focus: PointType;
@@ -38,6 +44,20 @@ export function findPointsForOffsets(
       }
       if (focus === null && nodeStart <= end && end <= cursor) {
         focus = { key: node.getKey(), offset: end - nodeStart };
+      }
+      if (anchor !== null && focus !== null) return true;
+      return false;
+    }
+    if (isImageNode(node)) {
+      const len = node.getTextContentSize();
+      const nodeStart = cursor;
+      cursor += len;
+
+      if (anchor === null && nodeStart <= start && start <= cursor) {
+        anchor = { key: node.getKey(), offset: Math.min(start - nodeStart, len) };
+      }
+      if (focus === null && nodeStart <= end && end <= cursor) {
+        focus = { key: node.getKey(), offset: Math.min(end - nodeStart, len) };
       }
       if (anchor !== null && focus !== null) return true;
       return false;

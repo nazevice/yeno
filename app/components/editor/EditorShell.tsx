@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import {
-  $createParagraphNode,
-  $createTextNode,
-  $getRoot,
-  type LexicalEditor,
-} from "lexical";
+import { $getRoot, type LexicalEditor } from "lexical";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { ListItemNode, ListNode } from "@lexical/list";
 import { LinkNode } from "@lexical/link";
@@ -19,12 +14,14 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { ContinuousView } from "./ContinuousView";
 import { PaginatedView } from "./PaginatedView";
 import { Toolbar } from "./Toolbar";
-import { ImagePlugin, INSERT_IMAGE_TOKEN_COMMAND } from "./plugins/ImagePlugin";
+import { ImagePlugin, INSERT_IMAGE_TOKEN_COMMAND, INSERT_IMAGE_ASSET_COMMAND } from "./plugins/ImagePlugin";
 import { bindToggleModeShortcut } from "~/lib/doc/hotkeys";
-import { applyLoadedPayload, loadDocument } from "~/lib/doc/deserialize";
+import { applyContentToEditor, applyLoadedPayload, loadDocument } from "~/lib/doc/deserialize";
 import { buildPayload, exportMarkdown, saveDocument } from "~/lib/doc/serialize";
 import type { AssetRef, EditorMode, PerfSnapshot } from "~/lib/doc/schema";
 import { VersionPanel } from "~/components/versioning";
+import { addPendingAsset, AssetsProvider } from "./AssetsContext";
+import { ImageNode } from "./nodes/ImageNode";
 
 function EditorRefBridge({ onReady }: { onReady: (editor: LexicalEditor) => void }) {
   const [editor] = useLexicalComposerContext();
@@ -60,7 +57,6 @@ const PAGE_WIDTH_PX = 794;
 const PAGE_HEIGHT_PX = 1123;
 const PAGE_GAP_PX = 48;
 const PAGE_STRIDE_PX = PAGE_HEIGHT_PX + PAGE_GAP_PX;
-const MAX_TEXT_NODE_CHARS = 2048;
 const BENCHMARK_LINE_CHARS = 2048;
 
 export function EditorShell() {
@@ -84,7 +80,7 @@ export function EditorShell() {
       onError(error: Error) {
         throw error;
       },
-      nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, LinkNode],
+      nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, LinkNode, ImageNode],
     }),
     [],
   );
@@ -93,27 +89,13 @@ export function EditorShell() {
     setPerf((prev) => [entry, ...prev].slice(0, 8));
   }, []);
 
-  const applyLoadedText = useCallback((text: string) => {
-    if (!editor) return;
-    const lines = text.split("\n");
-
-    editor.update(() => {
-      const root = $getRoot();
-      root.clear();
-      for (const line of lines) {
-        const paragraph = $createParagraphNode();
-        if (line.length === 0) {
-          paragraph.append($createTextNode(""));
-        } else {
-          for (let offset = 0; offset < line.length; offset += MAX_TEXT_NODE_CHARS) {
-            const chunk = line.slice(offset, offset + MAX_TEXT_NODE_CHARS);
-            paragraph.append($createTextNode(chunk));
-          }
-        }
-        root.append(paragraph);
-      }
-    });
-  }, [editor]);
+  const applyLoadedText = useCallback(
+    (text: string, assets?: AssetRef[]) => {
+      if (!editor) return;
+      applyContentToEditor(editor, text, assets ?? []);
+    },
+    [editor],
+  );
 
   const onToggleMode = useCallback(() => {
     setMode((prev) => {
@@ -189,19 +171,46 @@ export function EditorShell() {
 
   const onLoad = useCallback(async () => {
     const result = await loadDocument(filePath);
+    for (const asset of result.payload.assets) {
+      addPendingAsset(asset);
+    }
+    setAssets(result.payload.assets);
     if (editor) {
       applyLoadedPayload(editor, result.payload);
       setStatus(`Loaded ${filePath}`);
     } else {
       setStatus("Editor not ready. Try opening again.");
     }
-    setAssets(result.payload.assets);
     appendPerf(result.perf);
   }, [appendPerf, editor, filePath]);
 
   const onInsertImage = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+
+  // Dev: Insert test image without file picker (80x80 red square PNG for visibility)
+  const onInsertTestImage = useCallback(() => {
+    if (!editor) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = 80;
+    canvas.height = 80;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#e11d48";
+    ctx.fillRect(0, 0, 80, 80);
+    ctx.fillStyle = "#fff";
+    ctx.font = "14px system-ui";
+    ctx.fillText("OK", 28, 48);
+    const dataUrl = canvas.toDataURL("image/png");
+    const binary = atob(dataUrl.split(",")[1]!);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const name = `test-${Date.now()}.png`;
+    const asset = normalizeAsset(name, bytes);
+    addPendingAsset(asset);
+    setAssets((prev) => [...prev, asset]);
+    editor.dispatchCommand(INSERT_IMAGE_TOKEN_COMMAND, { name, alt: "Test image" });
+    setStatus("Inserted test image");
+  }, [editor]);
 
   const runLargeDocumentBenchmark = useCallback(() => {
     if (!editor) return;
@@ -230,7 +239,9 @@ export function EditorShell() {
       const file = event.target.files?.[0];
       if (!file || !editor) return;
       const bytes = new Uint8Array(await file.arrayBuffer());
-      setAssets((prev) => [...prev, normalizeAsset(file.name, bytes)]);
+      const asset = normalizeAsset(file.name, bytes);
+      addPendingAsset(asset);
+      setAssets((prev) => [...prev, asset]);
       editor.dispatchCommand(INSERT_IMAGE_TOKEN_COMMAND, {
         name: file.name,
         alt: file.name,
@@ -239,6 +250,24 @@ export function EditorShell() {
     },
     [editor],
   );
+
+  useEffect(() => {
+    if (!editor) return;
+    return editor.registerCommand(
+      INSERT_IMAGE_ASSET_COMMAND,
+      (payload) => {
+        const asset = normalizeAsset(payload.name, payload.data);
+        addPendingAsset(asset);
+        setAssets((prev) => [...prev, asset]);
+        editor.dispatchCommand(INSERT_IMAGE_TOKEN_COMMAND, {
+          name: payload.name,
+          alt: payload.alt,
+        });
+        return true;
+      },
+      0,
+    );
+  }, [editor]);
 
   // Get current document text content
   const getCurrentContent = useCallback((): string => {
@@ -251,10 +280,13 @@ export function EditorShell() {
   }, [editor]);
 
   // Handle version restore
-  const onVersionRestore = useCallback((content: string) => {
-    applyLoadedText(content);
-    setStatus("Restored version");
-  }, [applyLoadedText]);
+  const onVersionRestore = useCallback(
+    (content: string) => {
+      applyLoadedText(content, assets);
+      setStatus("Restored version");
+    },
+    [applyLoadedText, assets],
+  );
 
   return (
     <main className="mx-auto flex h-screen max-w-7xl flex-col gap-3 p-4 text-zinc-900">
@@ -290,14 +322,22 @@ export function EditorShell() {
         <button className="toolbar-btn" onClick={runLargeDocumentBenchmark}>
           10MB Benchmark
         </button>
+        <button
+          className="toolbar-btn bg-amber-100 text-amber-800 hover:bg-amber-200"
+          onClick={onInsertTestImage}
+          title="Insert test image (no file dialog)"
+        >
+          Test Image
+        </button>
       </div>
 
       <LexicalComposer initialConfig={initialConfig}>
-        <EditorRefBridge onReady={setEditor} />
-        <HistoryPlugin />
-        <OnChangePlugin ignoreSelectionChange onChange={() => {}} />
-        <ImagePlugin />
-        {mode === "continuous" ? (
+        <AssetsProvider assets={assets}>
+          <EditorRefBridge onReady={setEditor} />
+          <HistoryPlugin />
+          <OnChangePlugin ignoreSelectionChange onChange={() => {}} />
+          <ImagePlugin />
+          {mode === "continuous" ? (
           <ContinuousView>
             <RichTextPlugin
               contentEditable={<ContentEditable className="editor-content min-h-[70vh] rounded-lg p-4 outline-none" />}
@@ -331,6 +371,7 @@ export function EditorShell() {
             />
           </PaginatedView>
         )}
+        </AssetsProvider>
       </LexicalComposer>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-3 text-sm shadow-sm">
