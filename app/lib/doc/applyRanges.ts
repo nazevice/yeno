@@ -17,7 +17,14 @@ export function applyMetadataRanges(editor: LexicalEditor, ranges: MetadataRange
 
   for (const range of sorted) {
     const font = range.attrs?.font;
-    if (typeof font !== "string" || font === "") continue;
+    const fontSize = range.attrs?.fontSize;
+    const hasFont = typeof font === "string" && font !== "";
+    const hasFontSize = typeof fontSize === "string" && fontSize !== "";
+    if (!hasFont && !hasFontSize) continue;
+
+    const stylePatch: Record<string, string | null> = {};
+    if (hasFont) stylePatch["font-family"] = font as string;
+    if (hasFontSize) stylePatch["font-size"] = fontSize as string;
 
     editor.update(
       () => {
@@ -31,7 +38,7 @@ export function applyMetadataRanges(editor: LexicalEditor, ranges: MetadataRange
         $setSelection(selection);
 
         if ($isRangeSelection(selection)) {
-          $patchStyleText(selection, { "font-family": font });
+          $patchStyleText(selection, stylePatch);
         }
 
         $setSelection(null);

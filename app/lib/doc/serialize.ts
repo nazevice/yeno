@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { $getRoot, type LexicalEditor } from "lexical";
 import { $generateHtmlFromNodes } from "@lexical/html";
 
-import { DEFAULT_FONT } from "./fonts";
+import { DEFAULT_FONT, DEFAULT_FONT_SIZE, normalizeFontSizeToPx } from "./fonts";
 import type { DocumentPayload, PerfSnapshot } from "./schema";
 
 function isTauriRuntime(): boolean {
@@ -49,11 +49,18 @@ function extractRangesFromHtml(html: string): DocumentPayload["metadata"]["range
       }
       if (element.tagName === "SPAN" && textLen > 0) {
         const fontFamily = element.style?.fontFamily?.trim();
-        if (fontFamily && fontFamily !== DEFAULT_FONT) {
+        const rawFontSize = element.style?.fontSize?.trim();
+        const fontSize = rawFontSize ? normalizeFontSizeToPx(rawFontSize) : null;
+        const hasFont = fontFamily && fontFamily !== DEFAULT_FONT;
+        const hasFontSize = fontSize && fontSize !== DEFAULT_FONT_SIZE;
+        if (hasFont || hasFontSize) {
+          const attrs: Record<string, unknown> = {};
+          if (hasFont) attrs.font = fontFamily;
+          if (hasFontSize) attrs.fontSize = fontSize;
           ranges.push({
             start: Math.max(0, cursor),
             end: cursor + textLen,
-            attrs: { font: fontFamily },
+            attrs,
           });
         }
       }
