@@ -1,0 +1,21 @@
+{
+  "name": "@yeno/yeno-wasm",
+  "type": "module",
+  "description": "WASM modules for Yeno editor: compression, search, CRDT, and diff",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "files": [
+    "yeno_wasm_bg.wasm",
+    "yeno_wasm.js",
+    "yeno_wasm.d.ts"
+  ],
+  "main": "yeno_wasm.js",
+  "types": "yeno_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

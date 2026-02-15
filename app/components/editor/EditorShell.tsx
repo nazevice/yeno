@@ -24,6 +24,7 @@ import { bindToggleModeShortcut } from "~/lib/doc/hotkeys";
 import { loadDocument } from "~/lib/doc/deserialize";
 import { buildPayload, exportMarkdown, saveDocument } from "~/lib/doc/serialize";
 import type { AssetRef, EditorMode, PerfSnapshot } from "~/lib/doc/schema";
+import { VersionPanel } from "~/components/versioning";
 
 function EditorRefBridge({ onReady }: { onReady: (editor: LexicalEditor) => void }) {
   const [editor] = useLexicalComposerContext();
@@ -72,6 +73,7 @@ export function EditorShell() {
   const paginatedContainerRef = useRef<HTMLElement | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
+  const [showVersionPanel, setShowVersionPanel] = useState(false);
 
   const initialConfig = useMemo(
     () => ({
@@ -232,6 +234,22 @@ export function EditorShell() {
     [editor],
   );
 
+  // Get current document text content
+  const getCurrentContent = useCallback((): string => {
+    if (!editor) return "";
+    let text = "";
+    editor.getEditorState().read(() => {
+      text = $getRoot().getTextContent();
+    });
+    return text;
+  }, [editor]);
+
+  // Handle version restore
+  const onVersionRestore = useCallback((content: string) => {
+    applyLoadedText(content);
+    setStatus("Restored version");
+  }, [applyLoadedText]);
+
   return (
     <main className="mx-auto flex h-screen max-w-7xl flex-col gap-3 p-4 text-zinc-900">
       <Toolbar editor={editor} mode={mode} onToggleMode={onToggleMode} onInsertImage={onInsertImage} />
@@ -248,6 +266,12 @@ export function EditorShell() {
         </button>
         <button className="toolbar-btn" onClick={onSave}>
           Save
+        </button>
+        <button
+          className="toolbar-btn bg-purple-100 text-purple-700 hover:bg-purple-200"
+          onClick={() => setShowVersionPanel(true)}
+        >
+          Versions
         </button>
         <input
           className="min-w-[22rem] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm"
@@ -314,6 +338,15 @@ export function EditorShell() {
       </section>
 
       <input ref={fileInputRef} className="hidden" type="file" accept="image/*" onChange={onPickImage} />
+
+      {showVersionPanel && (
+        <VersionPanel
+          documentPath={filePath}
+          currentContent={getCurrentContent()}
+          onRestore={onVersionRestore}
+          onClose={() => setShowVersionPanel(false)}
+        />
+      )}
     </main>
   );
 }

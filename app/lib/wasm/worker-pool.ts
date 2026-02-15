@@ -11,13 +11,13 @@ import type { YenoWasm, CompressResult, SearchResult, DiffResult, DocState, Mult
 // Worker Message Types
 // ============================================================================
 
-interface WorkerMessage<T = unknown> {
+interface WorkerMessageBase {
   id: string;
   type: string;
-  payload: T;
+  [key: string]: unknown;
 }
 
-interface WorkerResponse<T = unknown> {
+export interface WorkerResponse<T = unknown> {
   id: string;
   success: boolean;
   result?: T;
@@ -223,7 +223,7 @@ export class WasmWorkerPool {
       worker.postMessage({
         id,
         ...operation,
-      } as WorkerMessage);
+      } as WorkerMessageBase);
     });
   }
 

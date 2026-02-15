@@ -12,3 +12,10 @@
 /public/wasm/*.d.ts
 /public/wasm/*.ts
 !/public/wasm/README.md
+/app/lib/wasm/pkg/*.js
+/app/lib/wasm/pkg/*.wasm
+/app/lib/wasm/pkg/*.d.ts
+/app/lib/wasm/pkg/*.ts
+
+# Rust build output
+target/

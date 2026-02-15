@@ -5,8 +5,55 @@
 //! by matching unique common sequences first.
 
 use js_sys::Array;
-use wasm_bindgen::prelude::*;
+use serde::Serialize;
+use serde_wasm_bindgen::to_value;
 use similar::{ChangeTag, TextDiff};
+use wasm_bindgen::prelude::*;
+
+/// Diff line kind for structured version diff (matches Tauri VersionDiff)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum DiffLineKind {
+    Context,
+    Addition,
+    Deletion,
+}
+
+/// Single line in a diff hunk (matches Tauri DiffLine)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionDiffLine {
+    kind: DiffLineKind,
+    content: String,
+    old_line: Option<usize>,
+    new_line: Option<usize>,
+}
+
+/// Single hunk in a diff (matches Tauri DiffHunk for versioning)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionDiffHunk {
+    header: String,
+    old_start: usize,
+    old_lines: usize,
+    new_start: usize,
+    new_lines: usize,
+    lines: Vec<VersionDiffLine>,
+}
+
+/// Structured diff result (matches Tauri VersionDiff)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionDiffResult {
+    from_version_id: String,
+    to_version_id: String,
+    additions: usize,
+    deletions: usize,
+    unchanged: usize,
+    similarity: f64,
+    unified_diff: String,
+    hunks: Vec<VersionDiffHunk>,
+}
 
 /// A single diff operation
 #[wasm_bindgen]
@@ -31,7 +78,7 @@ impl From<ChangeTag> for DiffOp {
 }
 
 /// A single change in the diff
-#[wasm_bindgen]
+#[wasm_bindgen(getter_with_clone)]
 pub struct DiffHunk {
     /// The operation type
     pub op: DiffOp,
@@ -61,7 +108,7 @@ impl DiffHunk {
 }
 
 /// Result of a diff operation
-#[wasm_bindgen]
+#[wasm_bindgen(getter_with_clone)]
 pub struct DiffResult {
     /// Array of diff hunks
     pub hunks: Array,
@@ -119,9 +166,6 @@ impl DiffResult {
 /// DiffResult containing all changes and statistics
 #[wasm_bindgen]
 pub fn diff(old_text: String, new_text: String) -> DiffResult {
-    let old_lines: Vec<&str> = old_text.lines().collect();
-    let new_lines: Vec<&str> = new_text.lines().collect();
-    
     let text_diff = TextDiff::from_lines(&old_text, &new_text);
     
     let mut result = DiffResult::new();
@@ -308,13 +352,8 @@ pub fn unified_diff(
     output.push_str(&format!("+++ {}\n", new_name));
     
     for hunk in text_diff.unified_diff().context_radius(context_lines).iter_hunks() {
-        output.push_str(&format!(
-            "@@ -{},{} +{},{} @@\n",
-            hunk.old_range().start + 1,
-            hunk.old_range().len,
-            hunk.new_range().start + 1,
-            hunk.new_range().len
-        ));
+        let header_str = hunk.header().to_string();
+        output.push_str(&format!("{}\n", header_str.trim()));
         
         for change in hunk.iter_changes() {
             let prefix = match change.tag() {
@@ -327,6 +366,149 @@ pub fn unified_diff(
     }
     
     output
+}
+
+fn split_change_into_lines(value: &str) -> Vec<String> {
+    let lines: Vec<&str> = value.lines().collect();
+    if lines.is_empty() && !value.is_empty() {
+        vec![value.to_string()]
+    } else {
+        lines.iter().map(|s| (*s).to_string()).collect()
+    }
+}
+
+/// Parse a hunk header like "@@ -1,5 +1,6 @@" into (old_start, old_lines, new_start, new_lines).
+fn parse_hunk_header(header: &str) -> (usize, usize, usize, usize) {
+    let trim = header.trim().trim_start_matches("@@").trim_end_matches("@@").trim();
+    let parts: Vec<&str> = trim.split_whitespace().collect();
+    if parts.len() >= 2 {
+        let parse_range = |s: &str| -> (usize, usize) {
+            let s = s.trim_start_matches('-').trim_start_matches('+');
+            let nums: Vec<usize> = s.split(',').filter_map(|x| x.parse().ok()).collect();
+            if nums.len() >= 2 {
+                (nums[0], nums[1])
+            } else if nums.len() == 1 {
+                (nums[0], 1)
+            } else {
+                (1, 0)
+            }
+        };
+        let (old_start, old_lines) = parse_range(parts[0]);
+        let (new_start, new_lines) = parse_range(parts[1]);
+        (old_start, old_lines, new_start, new_lines)
+    } else {
+        (1, 0, 1, 0)
+    }
+}
+
+/// Compute structured diff for version comparison.
+/// Returns VersionDiff-compatible output for the DiffViewer UI.
+#[wasm_bindgen]
+pub fn diff_versions_structured(
+    old_text: String,
+    new_text: String,
+    from_version_id: String,
+    to_version_id: String,
+) -> JsValue {
+    let text_diff = TextDiff::from_lines(&old_text, &new_text);
+
+    let mut additions = 0;
+    let mut deletions = 0;
+    let mut unchanged = 0;
+    let mut hunks: Vec<VersionDiffHunk> = Vec::new();
+
+    let mut unified_diff = String::new();
+    unified_diff.push_str("--- Version (old)\n");
+    unified_diff.push_str("+++ Version (new)\n");
+
+    for hunk in text_diff.unified_diff().context_radius(3).iter_hunks() {
+        let header_str = hunk.header().to_string();
+        let (old_start, old_lines, new_start, new_lines) = parse_hunk_header(&header_str);
+
+        let mut diff_lines: Vec<VersionDiffLine> = Vec::new();
+        let mut old_line = old_start;
+        let mut new_line = new_start;
+        let header = format!("@@ -{},{} +{},{} @@", old_start, old_lines, new_start, new_lines);
+        unified_diff.push_str(&header);
+        unified_diff.push('\n');
+
+        for change in hunk.iter_changes() {
+            let value = change.value();
+            let lines = split_change_into_lines(value);
+            let line_count = lines.len().max(1);
+
+            for (i, line_content) in lines.iter().enumerate() {
+                let (kind, prefix, old_line_num, new_line_num) = match change.tag() {
+                    ChangeTag::Delete => {
+                        deletions += 1;
+                        (DiffLineKind::Deletion, '-', Some(old_line + i), None)
+                    }
+                    ChangeTag::Insert => {
+                        additions += 1;
+                        (DiffLineKind::Addition, '+', None, Some(new_line + i))
+                    }
+                    ChangeTag::Equal => {
+                        unchanged += 1;
+                        (
+                            DiffLineKind::Context,
+                            ' ',
+                            Some(old_line + i),
+                            Some(new_line + i),
+                        )
+                    }
+                };
+
+                unified_diff.push(prefix);
+                unified_diff.push_str(line_content);
+                unified_diff.push('\n');
+
+                diff_lines.push(VersionDiffLine {
+                    kind,
+                    content: line_content.clone(),
+                    old_line: old_line_num,
+                    new_line: new_line_num,
+                });
+            }
+
+            match change.tag() {
+                ChangeTag::Delete => old_line += line_count,
+                ChangeTag::Insert => new_line += line_count,
+                ChangeTag::Equal => {
+                    old_line += line_count;
+                    new_line += line_count;
+                }
+            }
+        }
+
+        hunks.push(VersionDiffHunk {
+            header,
+            old_start,
+            old_lines,
+            new_start,
+            new_lines,
+            lines: diff_lines,
+        });
+    }
+
+    let total = additions + deletions + unchanged;
+    let similarity = if total > 0 {
+        unchanged as f64 / total as f64
+    } else {
+        1.0
+    };
+
+    let result = VersionDiffResult {
+        from_version_id: from_version_id.clone(),
+        to_version_id: to_version_id.clone(),
+        additions,
+        deletions,
+        unchanged,
+        similarity,
+        unified_diff,
+        hunks,
+    };
+
+    to_value(&result).unwrap_or(JsValue::NULL)
 }
 
 #[cfg(test)]

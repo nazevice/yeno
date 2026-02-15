@@ -1,0 +1,2 @@
+# This directory holds the built WASM module.
+# Run `npm run wasm:dev` to build (requires: cargo, wasm-pack, wasm32 target).

@@ -19,7 +19,7 @@ regex = "1.11"
 aho-corasick = "1.1"
 similar = "2.6"
 yrs = "0.21"
-console_error_panic_hook = "0.1"
+console_error_panic_hook = { version = "0.1", optional = true }
 
 [dependencies.web-sys]
 version = "0.3"
@@ -27,6 +27,10 @@ features = ["console"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+[features]
+default = ["console_error_panic_hook"]
+console_error_panic_hook = ["dep:console_error_panic_hook"]
 
 [profile.release]
 opt-level = 3

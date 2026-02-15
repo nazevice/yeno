@@ -6,7 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
-OUTPUT_DIR="$PROJECT_ROOT/public/wasm"
+OUTPUT_DIR="$PROJECT_ROOT/app/lib/wasm/pkg"
 
 echo "Building Yeno WASM module..."
 

@@ -33,14 +33,11 @@ export async function loadWasm(): Promise<YenoWasm> {
 
   loadingPromise = (async () => {
     try {
-      // Dynamic import of the WASM module from public/wasm
-      // The module is built by wasm-pack and placed in public/wasm/
-      const wasmPath = '/wasm/yeno_wasm.js';
-      
-      // Import the WASM module
+      // Dynamic import of the WASM module - built by wasm-pack to app/lib/wasm/pkg/
+      // Using a module path so Vite can resolve and process it (public/ files cannot be imported)
       const wasmModule = await import(
         /* @vite-ignore */
-        wasmPath
+        '~/lib/wasm/pkg/yeno_wasm.js'
       );
       
       // Initialize the module (this loads the .wasm binary)

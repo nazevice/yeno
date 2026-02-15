@@ -18,7 +18,13 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       commands::document::save_grokedoc,
       commands::document::load_grokedoc,
-      commands::document::export_document_markdown
+      commands::document::export_document_markdown,
+      commands::versioning::create_version,
+      commands::versioning::list_versions,
+      commands::versioning::get_version,
+      commands::versioning::diff_versions,
+      commands::versioning::restore_version,
+      commands::versioning::delete_version
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

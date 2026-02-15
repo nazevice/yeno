@@ -13,6 +13,7 @@ import type {
   MultiSearchResult,
   DiffResult,
   DocState,
+  VersionDiffResult,
 } from './types';
 
 // ============================================================================
@@ -295,6 +296,21 @@ export function textsEqual(oldText: string, newText: string): boolean {
   return wasm.texts_equal(oldText, newText);
 }
 
+/**
+ * Compute structured diff for version comparison.
+ * Returns VersionDiff format for DiffViewer.
+ */
+export function diffVersionsStructured(
+  oldText: string,
+  newText: string,
+  fromVersionId: string,
+  toVersionId: string
+): VersionDiffResult {
+  const wasm = getWasm();
+  if (!wasm) throw new Error('WASM module not loaded. Call initialize() first.');
+  return wasm.diff_versions_structured(oldText, newText, fromVersionId, toVersionId);
+}
+
 // ============================================================================
 // CRDT API
 // ============================================================================
@@ -356,6 +372,7 @@ export type {
   DiffHunk,
   DiffResult,
   DiffOpType,
+  VersionDiffResult,
   DocState,
   TextHandle,
   MapHandle,

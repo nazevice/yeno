@@ -11,7 +11,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "wasm:build": "cd wasm/yeno-wasm && chmod +x build.sh && ./build.sh",
-    "wasm:dev": "cd wasm/yeno-wasm && wasm-pack build --target web --out-dir ../../public/wasm --dev --scope yeno"
+    "wasm:dev": "cd wasm/yeno-wasm && wasm-pack build --target web --out-dir ../../app/lib/wasm/pkg --dev --scope yeno"
   },
   "dependencies": {
     "@lexical/history": "^0.40.0",

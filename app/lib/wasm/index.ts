@@ -56,6 +56,7 @@ export {
   unifiedDiff,
   unifiedDiffAsync,
   textsEqual,
+  diffVersionsStructured,
   
   // CRDT
   createDoc,
@@ -74,6 +75,7 @@ export type {
   DiffHunk,
   DiffResult,
   DiffOpType,
+  VersionDiffResult,
   DocState,
   TextHandle,
   MapHandle,

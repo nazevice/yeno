@@ -10,7 +10,11 @@
 
 use js_sys::{Array, Uint8Array};
 use wasm_bindgen::prelude::*;
-use yrs::{Doc, ReadTxn, StateVector, Transact, Update, updates::encoder::Encode};
+use yrs::{
+    Any, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
+    updates::decoder::Decode,
+    updates::encoder::Encode,
+};
 
 /// A CRDT document state wrapper.
 /// 
@@ -53,8 +57,8 @@ impl DocState {
     /// Useful for persisting document state.
     pub fn encode_state(&self) -> Uint8Array {
         let txn = self.doc.transact();
-        let update = Update::new();
-        let encoded = update.encode_v1();
+        let empty_sv = StateVector::default();
+        let encoded = txn.encode_diff_v1(&empty_sv);
         Uint8Array::from(encoded.as_slice())
     }
 
@@ -67,8 +71,8 @@ impl DocState {
         let upd = Update::decode_v1(&bytes)
             .map_err(|e| JsValue::from_str(&format!("Failed to decode update: {}", e)))?;
         
-        let mut txn = self.doc.transact();
-        txn.apply_update(upd);
+        let mut txn = self.doc.transact_mut();
+        let _ = txn.apply_update(upd);
         
         Ok(())
     }
@@ -80,7 +84,9 @@ impl DocState {
             .map_err(|e| JsValue::from_str(&format!("Failed to decode state vector: {}", e)))?;
         
         let txn = self.doc.transact();
-        Ok(txn.state_vector().contains(&other_sv))
+        let our_sv = txn.state_vector();
+        // We have the state if for every (client, clock) in other_sv, we have at least that clock
+        Ok(other_sv.iter().all(|(client, clock)| our_sv.get(client) >= *clock))
     }
 
     /// Get the missing updates needed to sync with the given state vector.
@@ -93,8 +99,7 @@ impl DocState {
             .map_err(|e| JsValue::from_str(&format!("Failed to decode state vector: {}", e)))?;
         
         let txn = self.doc.transact();
-        let update = txn.encode_diff_v1(&other_sv)
-            .map_err(|e| JsValue::from_str(&format!("Failed to encode diff: {}", e)))?;
+        let update = txn.encode_diff_v1(&other_sv);
         
         Ok(Uint8Array::from(update.as_slice()))
     }
@@ -103,7 +108,7 @@ impl DocState {
     /// 
     /// Returns a handle that can be used for text operations.
     pub fn create_text(&mut self, name: String) -> TextHandle {
-        let text = self.doc.get_or_insert_text(&name);
+        let text = self.doc.get_or_insert_text(name.as_str());
         TextHandle { text }
     }
 
@@ -111,7 +116,7 @@ impl DocState {
     /// 
     /// Returns a handle for key-value operations.
     pub fn create_map(&mut self, name: String) -> MapHandle {
-        let map = self.doc.get_or_insert_map(&name);
+        let map = self.doc.get_or_insert_map(name.as_str());
         MapHandle { map }
     }
 }
@@ -128,17 +133,15 @@ pub struct TextHandle {
 impl TextHandle {
     /// Insert text at a given position.
     pub fn insert(&self, doc: &DocState, index: u32, text: String) -> Result<(), JsValue> {
-        let mut txn = doc.doc.transact();
-        self.text.insert(&mut txn, index, &text)
-            .map_err(|e| JsValue::from_str(&format!("Insert failed: {}", e)))?;
+        let mut txn = doc.doc.transact_mut();
+        self.text.insert(&mut txn, index, &text);
         Ok(())
     }
 
     /// Delete characters from a given position.
     pub fn delete(&self, doc: &DocState, index: u32, length: u32) -> Result<(), JsValue> {
-        let mut txn = doc.doc.transact();
-        self.text.remove_range(&mut txn, index, length)
-            .map_err(|e| JsValue::from_str(&format!("Delete failed: {}", e)))?;
+        let mut txn = doc.doc.transact_mut();
+        self.text.remove_range(&mut txn, index, length);
         Ok(())
     }
 
@@ -167,17 +170,16 @@ pub struct MapHandle {
 impl MapHandle {
     /// Set a key-value pair.
     pub fn set(&self, doc: &DocState, key: String, value: String) -> Result<(), JsValue> {
-        let mut txn = doc.doc.transact();
-        self.map.insert(&mut txn, &key, value)
-            .map_err(|e| JsValue::from_str(&format!("Set failed: {}", e)))?;
+        let mut txn = doc.doc.transact_mut();
+        self.map.insert(&mut txn, key.as_str(), value);
         Ok(())
     }
 
     /// Get a value by key.
     pub fn get(&self, doc: &DocState, key: String) -> Option<String> {
         let txn = doc.doc.transact();
-        self.map.get(&txn, &key).and_then(|v| {
-            if let yrs::Value::Any(yrs::Any::String(s)) = v {
+        self.map.get(&txn, key.as_str()).and_then(|v| {
+            if let yrs::Out::Any(Any::String(s)) = v {
                 Some(s.to_string())
             } else {
                 None
@@ -187,9 +189,8 @@ impl MapHandle {
 
     /// Delete a key.
     pub fn delete(&self, doc: &DocState, key: String) -> Result<(), JsValue> {
-        let mut txn = doc.doc.transact();
-        self.map.remove(&mut txn, &key)
-            .map_err(|e| JsValue::from_str(&format!("Delete failed: {}", e)))?;
+        let mut txn = doc.doc.transact_mut();
+        self.map.remove(&mut txn, key.as_str());
         Ok(())
     }
 
@@ -256,8 +257,8 @@ pub fn merge_state_vectors(sv1: Uint8Array, sv2: Uint8Array) -> Result<Uint8Arra
     
     for (client, clock) in svb.iter() {
         let existing = sva.get(client);
-        if clock > existing {
-            sva.set_max(client, clock);
+        if *clock > existing {
+            sva.set_max(*client, *clock);
         }
     }
     

@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::*;
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 
 /// Result of a compression operation
-#[wasm_bindgen]
+#[wasm_bindgen(getter_with_clone)]
 pub struct CompressResult {
     /// Compressed data as Uint8Array
     pub data: Uint8Array,
@@ -36,8 +36,7 @@ pub fn compress(input: Uint8Array) -> Result<CompressResult, JsValue> {
     let data = input.to_vec();
     let original_size = data.len();
     
-    let compressed = compress_prepend_size(&data)
-        .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
+    let compressed = compress_prepend_size(&data);
     
     let compressed_size = compressed.len();
     let ratio = if original_size > 0 {
@@ -86,8 +85,7 @@ pub fn compress_string(input: String) -> Result<CompressResult, JsValue> {
     let bytes = input.as_bytes();
     let original_size = bytes.len();
     
-    let compressed = compress_prepend_size(bytes)
-        .map_err(|e| JsValue::from_str(&format!("Compression error: {}", e)))?;
+    let compressed = compress_prepend_size(bytes);
     
     let compressed_size = compressed.len();
     let ratio = if original_size > 0 {

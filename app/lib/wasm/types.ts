@@ -210,6 +210,32 @@ export interface DiffResult {
 }
 
 /**
+ * Result of structured version diff (matches VersionDiff from versioning).
+ */
+export interface VersionDiffResult {
+  fromVersionId: string;
+  toVersionId: string;
+  additions: number;
+  deletions: number;
+  unchanged: number;
+  similarity: number;
+  unifiedDiff: string;
+  hunks: Array<{
+    header: string;
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    lines: Array<{
+      kind: 'context' | 'addition' | 'deletion';
+      content: string;
+      oldLine: number | null;
+      newLine: number | null;
+    }>;
+  }>;
+}
+
+/**
  * Diff module API
  */
 export interface DiffModule {
@@ -229,6 +255,13 @@ export interface DiffModule {
     new_name: string,
     context_lines: number
   ): string;
+  /** Compute structured diff for version comparison (VersionDiff format) */
+  diff_versions_structured(
+    old_text: string,
+    new_text: string,
+    from_version_id: string,
+    to_version_id: string
+  ): VersionDiffResult;
 }
 
 // ============================================================================

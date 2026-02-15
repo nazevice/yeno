@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::*;
 use aho_corasick::AhoCorasick;
 
 /// A single search match result
-#[wasm_bindgen]
+#[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
 pub struct SearchMatch {
     /// Start position of the match (byte offset)
@@ -23,7 +23,7 @@ pub struct SearchMatch {
 }
 
 /// Container for all search results
-#[wasm_bindgen]
+#[wasm_bindgen(getter_with_clone)]
 pub struct SearchResult {
     /// Array of all matches
     pub matches: Array,
@@ -207,8 +207,9 @@ pub fn search_multi(text: String, patterns: Array, case_sensitive: bool) -> Resu
     // Build final result object
     for (pattern, arr) in pattern_results {
         let info = js_sys::Object::new();
+        let count = arr.length();
         js_sys::Reflect::set(&info, &"matches".into(), &arr.into()).unwrap();
-        js_sys::Reflect::set(&info, &"count".into(), &arr.length().into()).unwrap();
+        js_sys::Reflect::set(&info, &"count".into(), &count.into()).unwrap();
         js_sys::Reflect::set(&result, &pattern.into(), &info.into()).unwrap();
     }
 
