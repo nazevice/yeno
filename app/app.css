@@ -58,7 +58,7 @@ body {
   position: absolute;
   left: -5.5rem;
   right: 0;
-  height: var(--page-height, 1120px);
+  height: var(--page-height, 1123px);
   border-radius: 10px;
   border: 1px dashed rgba(63, 63, 70, 0.16);
   pointer-events: none;

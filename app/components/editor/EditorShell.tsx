@@ -21,7 +21,7 @@ import { PaginatedView } from "./PaginatedView";
 import { Toolbar } from "./Toolbar";
 import { ImagePlugin, INSERT_IMAGE_TOKEN_COMMAND } from "./plugins/ImagePlugin";
 import { bindToggleModeShortcut } from "~/lib/doc/hotkeys";
-import { loadDocument } from "~/lib/doc/deserialize";
+import { applyLoadedPayload, loadDocument } from "~/lib/doc/deserialize";
 import { buildPayload, exportMarkdown, saveDocument } from "~/lib/doc/serialize";
 import type { AssetRef, EditorMode, PerfSnapshot } from "~/lib/doc/schema";
 import { VersionPanel } from "~/components/versioning";
@@ -55,7 +55,9 @@ const editorTheme = {
   },
 };
 
-const PAGE_HEIGHT_PX = 1120;
+/** DIN A4 at 96 DPI: 210mm × 297mm → 794×1123 px */
+const PAGE_WIDTH_PX = 794;
+const PAGE_HEIGHT_PX = 1123;
 const PAGE_GAP_PX = 48;
 const PAGE_STRIDE_PX = PAGE_HEIGHT_PX + PAGE_GAP_PX;
 const MAX_TEXT_NODE_CHARS = 2048;
@@ -187,11 +189,15 @@ export function EditorShell() {
 
   const onLoad = useCallback(async () => {
     const result = await loadDocument(filePath);
-    applyLoadedText(result.text);
+    if (editor) {
+      applyLoadedPayload(editor, result.payload);
+      setStatus(`Loaded ${filePath}`);
+    } else {
+      setStatus("Editor not ready. Try opening again.");
+    }
     setAssets(result.payload.assets);
     appendPerf(result.perf);
-    setStatus(`Loaded ${filePath}`);
-  }, [appendPerf, applyLoadedText, filePath]);
+  }, [appendPerf, editor, filePath]);
 
   const onInsertImage = useCallback(() => {
     fileInputRef.current?.click();
@@ -305,6 +311,7 @@ export function EditorShell() {
             currentPage={currentPage}
             pageCount={pageCount}
             pageStridePx={PAGE_STRIDE_PX}
+            pageWidthPx={PAGE_WIDTH_PX}
           >
             <RichTextPlugin
               contentEditable={
@@ -312,6 +319,7 @@ export function EditorShell() {
                   className="editor-content paged min-h-[70vh] rounded-lg p-8 outline-none"
                   style={
                     {
+                      "--page-width": `${PAGE_WIDTH_PX}px`,
                       "--page-height": `${PAGE_HEIGHT_PX}px`,
                       "--page-gap": `${PAGE_GAP_PX}px`,
                     } as CSSProperties

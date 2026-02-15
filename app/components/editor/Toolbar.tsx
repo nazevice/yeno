@@ -6,8 +6,10 @@ import {
 } from "lexical";
 import { $getSelection, $isRangeSelection } from "lexical";
 import { $createHeadingNode } from "@lexical/rich-text";
-import { $setBlocksType } from "@lexical/selection";
+import { $getSelectionStyleValueForProperty, $patchStyleText, $setBlocksType } from "@lexical/selection";
+import { useEffect, useState } from "react";
 
+import { DEFAULT_FONT, FONT_OPTIONS } from "~/lib/doc/fonts";
 import { TOGGLE_MODE_SHORTCUT } from "~/lib/doc/hotkeys";
 import type { EditorMode } from "~/lib/doc/schema";
 
@@ -19,9 +21,36 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarProps) {
+  const [currentFont, setCurrentFont] = useState(DEFAULT_FONT);
+
+  useEffect(() => {
+    if (!editor) return;
+    return editor.registerUpdateListener(({ editorState }) => {
+      editorState.read(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          const font =
+            $getSelectionStyleValueForProperty(selection, "font-family", DEFAULT_FONT) || DEFAULT_FONT;
+          setCurrentFont((prev) => (font === prev ? prev : font));
+        }
+      });
+    });
+  }, [editor]);
+
   const run = (fn: (editor: LexicalEditor) => void) => {
     if (!editor) return;
     fn(editor);
+  };
+
+  const onFontChange = (value: string) => {
+    run((e) =>
+      e.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          $patchStyleText(selection, { "font-family": value });
+        }
+      })
+    );
   };
 
   return (
@@ -39,6 +68,18 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
       <button className="toolbar-btn" onClick={() => run((e) => e.dispatchCommand(FORMAT_TEXT_COMMAND, "italic"))}>
         Italic
       </button>
+      <select
+        className="toolbar-btn min-w-[7rem] cursor-pointer"
+        value={FONT_OPTIONS.some((o) => o.value === currentFont) ? currentFont : DEFAULT_FONT}
+        onChange={(e) => onFontChange(e.target.value)}
+        title="Font family"
+      >
+        {FONT_OPTIONS.map(({ value, label }) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
       <button
         className="toolbar-btn"
         onClick={() =>

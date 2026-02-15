@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { $getRoot, type LexicalEditor } from "lexical";
 import { $generateHtmlFromNodes } from "@lexical/html";
 
+import { DEFAULT_FONT } from "./fonts";
 import type { DocumentPayload, PerfSnapshot } from "./schema";
 
 function isTauriRuntime(): boolean {
@@ -45,6 +46,16 @@ function extractRangesFromHtml(html: string): DocumentPayload["metadata"]["range
           type: "h",
           level: Number.parseInt(element.tagName[1] ?? "1", 10),
         });
+      }
+      if (element.tagName === "SPAN" && textLen > 0) {
+        const fontFamily = element.style?.fontFamily?.trim();
+        if (fontFamily && fontFamily !== DEFAULT_FONT) {
+          ranges.push({
+            start: Math.max(0, cursor),
+            end: cursor + textLen,
+            attrs: { font: fontFamily },
+          });
+        }
       }
     }
     node = walker.nextNode();

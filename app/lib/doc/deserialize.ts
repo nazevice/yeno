@@ -1,5 +1,15 @@
+import {
+  $createParagraphNode,
+  $createTextNode,
+  $getRoot,
+  type LexicalEditor,
+} from "lexical";
 import { invoke } from "@tauri-apps/api/core";
+
+import { applyMetadataRanges } from "./applyRanges";
 import type { DocumentPayload, PerfSnapshot } from "./schema";
+
+const MAX_TEXT_NODE_CHARS = 2048;
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -31,4 +41,31 @@ export async function loadDocument(path: string): Promise<{
 
   const [payload, perf] = await invoke<[DocumentPayload, PerfSnapshot]>("load_grokedoc", { path });
   return { payload, perf, text: rebuildText(payload) };
+}
+
+export function applyLoadedPayload(editor: LexicalEditor, payload: DocumentPayload): void {
+  const text = rebuildText(payload);
+  const lines = text.split("\n");
+
+  editor.update(() => {
+    const root = $getRoot();
+    root.clear();
+    for (const line of lines) {
+      const paragraph = $createParagraphNode();
+      if (line.length === 0) {
+        paragraph.append($createTextNode(""));
+      } else {
+        for (let offset = 0; offset < line.length; offset += MAX_TEXT_NODE_CHARS) {
+          const chunk = line.slice(offset, offset + MAX_TEXT_NODE_CHARS);
+          paragraph.append($createTextNode(chunk));
+        }
+      }
+      root.append(paragraph);
+    }
+  });
+
+  const ranges = payload.metadata?.ranges;
+  if (ranges?.length) {
+    applyMetadataRanges(editor, ranges);
+  }
 }

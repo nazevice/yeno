@@ -5,6 +5,7 @@ interface PaginatedViewProps extends PropsWithChildren {
   currentPage: number;
   pageCount: number;
   pageStridePx: number;
+  pageWidthPx: number;
   containerRef: RefObject<HTMLElement | null>;
 }
 
@@ -31,6 +32,7 @@ export function PaginatedView({
   currentPage,
   pageCount,
   pageStridePx,
+  pageWidthPx,
   containerRef,
 }: PaginatedViewProps) {
   const pageTotal = Math.max(pageCount, 1);
@@ -44,7 +46,10 @@ export function PaginatedView({
       <div className="sticky top-3 z-20 mb-2 ml-auto w-fit rounded-full border border-zinc-300 bg-white/95 px-3 py-1 text-xs font-semibold text-zinc-700 shadow-sm">
         Page {currentPage} / {Math.max(pageCount, 1)}
       </div>
-      <div className="relative mx-auto min-h-full max-w-[900px] pb-10">
+      <div
+        className="relative mx-auto min-h-full pb-10"
+        style={{ maxWidth: `${pageWidthPx}px` }}
+      >
         <div className="pointer-events-none absolute inset-0">
           {pages.map((page) => (
             <div
