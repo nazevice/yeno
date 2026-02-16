@@ -1,27 +1,33 @@
 /**
- * Shared utilities for image tokens in the format ![alt](asset://name).
+ * Shared utilities for image tokens in the format ![alt](asset://name) or ![alt](asset://name#WxH).
  * Single source of truth for parsing and serializing image references.
  */
 
-/** Matches ![alt](asset://name) - alt can contain any chars except ]; name can contain any chars except ) */
-export const IMAGE_TOKEN_REGEX = /!\[([^\]]*)\]\(asset:\/\/([^)]+)\)/g;
+/** Matches ![alt](asset://name) or ![alt](asset://name#WxH) - optional #WxH for dimensions */
+export const IMAGE_TOKEN_REGEX = /!\[([^\]]*)\]\(asset:\/\/([^#)]+)(?:#(\d+)x(\d+))?\)/g;
 
 export interface ImageTokenMatch {
   alt: string;
   name: string;
+  width?: number;
+  height?: number;
   fullMatch: string;
 }
 
 /**
- * Extracts alt and name from a regex match.
+ * Extracts alt, name, and optional dimensions from a regex match.
  * Call with match from IMAGE_TOKEN_REGEX.exec()
  */
 export function parseImageToken(match: RegExpExecArray): ImageTokenMatch {
   const alt = match[1] ?? "";
   const name = match[2] ?? "";
+  const width = match[3] ? Number.parseInt(match[3], 10) : undefined;
+  const height = match[4] ? Number.parseInt(match[4], 10) : undefined;
   return {
     alt,
     name,
+    width: Number.isNaN(width) ? undefined : width,
+    height: Number.isNaN(height) ? undefined : height,
     fullMatch: match[0],
   };
 }
@@ -29,9 +35,15 @@ export function parseImageToken(match: RegExpExecArray): ImageTokenMatch {
 /**
  * Builds the canonical token string.
  */
-export function toImageToken(name: string, alt: string): string {
+export function toImageToken(
+  name: string,
+  alt: string,
+  width?: number,
+  height?: number,
+): string {
   const altText = alt || name;
-  return `![${altText}](asset://${name})`;
+  const dims = width != null && height != null ? `#${width}x${height}` : "";
+  return `![${altText}](asset://${name}${dims})`;
 }
 
 export interface LineSegment {
@@ -39,6 +51,8 @@ export interface LineSegment {
   value: string;
   alt?: string;
   name?: string;
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -64,6 +78,8 @@ export function splitLineByImageTokens(line: string): LineSegment[] {
       value: parsed.fullMatch,
       alt: parsed.alt,
       name: parsed.name,
+      width: parsed.width,
+      height: parsed.height,
     });
     lastIndex = regex.lastIndex;
   }

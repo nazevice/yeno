@@ -340,7 +340,12 @@ export function EditorShell() {
           {mode === "continuous" ? (
           <ContinuousView>
             <RichTextPlugin
-              contentEditable={<ContentEditable className="editor-content min-h-[70vh] rounded-lg p-4 outline-none" />}
+              contentEditable={
+                <ContentEditable
+                  className="editor-content min-h-[70vh] rounded-lg p-4 outline-none"
+                  data-testid="editor-content"
+                />
+              }
               placeholder={<p className="text-zinc-400">Start writing...</p>}
               ErrorBoundary={LexicalErrorBoundary}
             />

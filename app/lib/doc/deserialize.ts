@@ -74,6 +74,8 @@ export function applyContentToEditor(
             $createImageNode({
               assetName: seg.name ?? "",
               alt: seg.alt ?? seg.name ?? "",
+              width: seg.width,
+              height: seg.height,
             }),
           );
         }
