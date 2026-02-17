@@ -3,18 +3,21 @@ import { $getRoot, type LexicalEditor } from "lexical";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { ListItemNode, ListNode } from "@lexical/list";
 import { LinkNode } from "@lexical/link";
+import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
+import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 
 import { ContinuousView } from "./ContinuousView";
 import { PaginatedView } from "./PaginatedView";
 import { Toolbar } from "./Toolbar";
 import { ImagePlugin, INSERT_IMAGE_TOKEN_COMMAND, INSERT_IMAGE_ASSET_COMMAND } from "./plugins/ImagePlugin";
+import { PaginationPlugin } from "./plugins/PaginationPlugin";
 import { bindToggleModeShortcut } from "~/lib/doc/hotkeys";
 import { applyContentToEditor, applyLoadedPayload, loadDocument } from "~/lib/doc/deserialize";
 import { buildPayload, exportMarkdown, saveDocument } from "~/lib/doc/serialize";
@@ -22,6 +25,7 @@ import type { AssetRef, EditorMode, PerfSnapshot } from "~/lib/doc/schema";
 import { VersionPanel } from "~/components/versioning";
 import { addPendingAsset, AssetsProvider } from "./AssetsContext";
 import { ImageNode } from "./nodes/ImageNode";
+import { PageBreakNode } from "./nodes/PageBreakNode";
 
 function EditorRefBridge({ onReady }: { onReady: (editor: LexicalEditor) => void }) {
   const [editor] = useLexicalComposerContext();
@@ -50,6 +54,11 @@ const editorTheme = {
     h2: "text-2xl font-semibold leading-tight mt-4 mb-2",
     h3: "text-xl font-semibold leading-tight mt-3 mb-2",
   },
+  "yeno-page-break": "page-break-node",
+  table: "editor-table w-full border-collapse my-2",
+  tableCell: "editor-table-cell border border-zinc-300 p-1 align-top",
+  tableCellHeader: "editor-table-cell-header bg-zinc-100 font-semibold border border-zinc-300 p-1 align-top",
+  tableRow: "editor-table-row",
 };
 
 /** DIN A4 at 96 DPI: 210mm × 297mm → 794×1123 px */
@@ -80,7 +89,7 @@ export function EditorShell() {
       onError(error: Error) {
         throw error;
       },
-      nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, LinkNode, ImageNode],
+      nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, LinkNode, ImageNode, PageBreakNode, TableNode, TableRowNode, TableCellNode],
     }),
     [],
   );
@@ -212,6 +221,26 @@ export function EditorShell() {
     setStatus("Inserted test image");
   }, [editor]);
 
+  const PAGINATION_TEST_TEXT = `Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.
+
+Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros et accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi. Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.
+
+Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat. Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros et accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi.
+
+Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming id quod mazim placerat facer possim assum. Lorem`;
+
+  const onLoadPaginationTest = useCallback(() => {
+    if (!editor) return;
+    const repeated = Array(5).fill(PAGINATION_TEST_TEXT).join("\n\n");
+    applyLoadedText(repeated);
+    setStatus("Loaded pagination test (5x)");
+    if (mode === "paginated") {
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("pagination-delayed-reflow"));
+      }, 1000);
+    }
+  }, [applyLoadedText, editor, mode]);
+
   const runLargeDocumentBenchmark = useCallback(() => {
     if (!editor) return;
     const targetBytes = 10 * 1024 * 1024;
@@ -329,6 +358,13 @@ export function EditorShell() {
         >
           Test Image
         </button>
+        <button
+          className="toolbar-btn bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+          onClick={onLoadPaginationTest}
+          title="Load Lorem ipsum test text 5x for pagination testing"
+        >
+          Pagination Test
+        </button>
       </div>
 
       <LexicalComposer initialConfig={initialConfig}>
@@ -337,6 +373,12 @@ export function EditorShell() {
           <HistoryPlugin />
           <OnChangePlugin ignoreSelectionChange onChange={() => {}} />
           <ImagePlugin />
+          <TablePlugin />
+          <PaginationPlugin
+            pageHeightPx={PAGE_HEIGHT_PX}
+            pageGapPx={PAGE_GAP_PX}
+            enabled={mode === "paginated"}
+          />
           {mode === "continuous" ? (
           <ContinuousView>
             <RichTextPlugin
@@ -361,12 +403,13 @@ export function EditorShell() {
             <RichTextPlugin
               contentEditable={
                 <ContentEditable
-                  className="editor-content paged min-h-[70vh] rounded-lg p-8 outline-none"
+                  className="editor-content paged rounded-lg p-8 outline-none"
                   style={
                     {
                       "--page-width": `${PAGE_WIDTH_PX}px`,
                       "--page-height": `${PAGE_HEIGHT_PX}px`,
                       "--page-gap": `${PAGE_GAP_PX}px`,
+                      minHeight: `${Math.max(pageCount, 1) * PAGE_STRIDE_PX - PAGE_GAP_PX}px`,
                     } as CSSProperties
                   }
                 />

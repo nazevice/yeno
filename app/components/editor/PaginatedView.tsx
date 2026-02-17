@@ -50,7 +50,7 @@ export function PaginatedView({
         className="relative mx-auto min-h-full pb-10"
         style={{ maxWidth: `${pageWidthPx}px` }}
       >
-        <div className="pointer-events-none absolute inset-0">
+        <div className="pointer-events-none absolute inset-0 z-0">
           {pages.map((page) => (
             <div
               key={page}

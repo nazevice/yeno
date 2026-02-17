@@ -74,10 +74,10 @@ export function findPointsForOffsets(
     if (walk(child)) break;
   }
 
-  if (anchor === null && lastTextNode) {
-    anchor = { key: lastTextNode.key, offset: lastTextNode.len };
-  } else if (anchor === null) {
-    return null;
+  if (anchor === null) {
+    if (lastTextNode === null) return null;
+    const ln = lastTextNode as { key: string; len: number };
+    anchor = { key: ln.key, offset: ln.len };
   }
   if (focus === null) {
     focus = { key: anchor.key, offset: anchor.offset };

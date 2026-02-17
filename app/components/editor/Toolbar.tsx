@@ -4,10 +4,11 @@ import {
   UNDO_COMMAND,
   type LexicalEditor,
 } from "lexical";
+import { INSERT_TABLE_COMMAND } from "@lexical/table";
 import { $getSelection, $isRangeSelection } from "lexical";
 import { $createHeadingNode } from "@lexical/rich-text";
 import { $getSelectionStyleValueForProperty, $patchStyleText, $setBlocksType } from "@lexical/selection";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   clampFontSizePx,
@@ -33,6 +34,11 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
   const [isFontSizeMixed, setIsFontSizeMixed] = useState(false);
   const [isCustomFontSize, setIsCustomFontSize] = useState(false);
   const [customFontSizePx, setCustomFontSizePx] = useState("");
+  const [showTablePicker, setShowTablePicker] = useState(false);
+  const [tableRows, setTableRows] = useState(3);
+  const [tableCols, setTableCols] = useState(4);
+  const [tableIncludeHeaders, setTableIncludeHeaders] = useState(true);
+  const tablePickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!editor) return;
@@ -116,6 +122,28 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
       })
     );
   };
+
+  const onInsertTable = () => {
+    run((e) =>
+      e.dispatchCommand(INSERT_TABLE_COMMAND, {
+        rows: String(tableRows),
+        columns: String(tableCols),
+        includeHeaders: tableIncludeHeaders,
+      })
+    );
+    setShowTablePicker(false);
+  };
+
+  useEffect(() => {
+    if (!showTablePicker) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tablePickerRef.current && !tablePickerRef.current.contains(event.target as Node)) {
+        setShowTablePicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showTablePicker]);
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white/90 p-3 shadow-sm">
@@ -216,6 +244,57 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
       >
         H2
       </button>
+      <div className="relative" ref={tablePickerRef}>
+        <button
+          className="toolbar-btn"
+          onClick={() => setShowTablePicker((prev) => !prev)}
+          title="Insert table"
+          aria-expanded={showTablePicker}
+          aria-haspopup="dialog"
+        >
+          Insert Table
+        </button>
+        {showTablePicker && (
+          <div className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] rounded-md border border-zinc-200 bg-white p-3 shadow-lg">
+            <div className="mb-2 grid grid-cols-2 gap-2 text-sm">
+              <label className="flex flex-col gap-0.5">
+                <span className="text-zinc-600">Rows</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={tableRows}
+                  onChange={(e) => setTableRows(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                  className="rounded border border-zinc-300 px-2 py-1 text-zinc-900"
+                />
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-zinc-600">Columns</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={tableCols}
+                  onChange={(e) => setTableCols(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
+                  className="rounded border border-zinc-300 px-2 py-1 text-zinc-900"
+                />
+              </label>
+            </div>
+            <label className="mb-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={tableIncludeHeaders}
+                onChange={(e) => setTableIncludeHeaders(e.target.checked)}
+                className="rounded border-zinc-300"
+              />
+              <span className="text-zinc-600">Header row</span>
+            </label>
+            <button className="w-full rounded bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700" onClick={onInsertTable}>
+              Insert
+            </button>
+          </div>
+        )}
+      </div>
       <button className="toolbar-btn" onClick={onInsertImage}>
         Insert Image
       </button>

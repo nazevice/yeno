@@ -24,34 +24,49 @@ body {
   @apply leading-7 text-[16px];
 }
 
+.editor-content table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.editor-content th,
+.editor-content td {
+  border: 1px solid #d4d4d8;
+  padding: 0.25rem 0.5rem;
+}
+.editor-content th {
+  background: #f4f4f5;
+}
+
 .editor-surface.paginated {
   background-color: #e4e4e7;
 }
 
 .editor-content.paged {
   position: relative;
+  z-index: 1;
   background-color: #ffffff;
   box-shadow: 0 0 0 1px rgba(39, 39, 42, 0.08);
   line-height: 1.75;
   isolation: isolate;
 }
 
-.editor-content.paged::after {
-  content: "";
-  position: absolute;
-  inset: 0;
+/* Page boundaries are rendered by PageBreakNode elements. No overlay gradient -
+   a fixed repeating gradient conflicts with dynamic PageBreak positions and
+   would paint over content when boundaries don't align. */
+
+.page-break-node {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--page-gap, 48px);
+  min-height: var(--page-gap, 48px);
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  background: #e4e4e7;
   pointer-events: none;
-  z-index: 4;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent calc(var(--page-height) - 2px),
-      rgba(212, 212, 216, 0.9) calc(var(--page-height) - 2px),
-      rgba(212, 212, 216, 0.9) var(--page-height),
-      #e4e4e7 var(--page-height),
-      #e4e4e7 calc(var(--page-height) + var(--page-gap))
-    );
+  /* Prevent margin collapse with adjacent blocks */
+  overflow: hidden;
 }
 
 .page-separator {
