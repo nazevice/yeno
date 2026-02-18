@@ -1,16 +1,10 @@
-import {
-  $createRangeSelection,
-  $getRoot,
-  $isRangeSelection,
-  $setSelection,
-  type LexicalEditor,
-} from "lexical";
-import { $patchStyleText } from "@lexical/selection";
-
-import { findPointsForOffsets } from "./selectionFromOffsets";
+import { createRangeFromOffsets } from "~/components/editor/core/domSelection";
 import type { MetadataRange } from "./schema";
 
-export function applyMetadataRanges(editor: LexicalEditor, ranges: MetadataRange[]): void {
+export function applyMetadataRanges(
+  root: HTMLElement,
+  ranges: MetadataRange[],
+): void {
   if (!ranges.length) return;
 
   const sorted = [...ranges].sort((a, b) => a.start - b.start);
@@ -20,30 +14,64 @@ export function applyMetadataRanges(editor: LexicalEditor, ranges: MetadataRange
     const fontSize = range.attrs?.fontSize;
     const hasFont = typeof font === "string" && font !== "";
     const hasFontSize = typeof fontSize === "string" && fontSize !== "";
-    if (!hasFont && !hasFontSize) continue;
+    const bold = range.attrs?.b;
+    const italic = range.attrs?.i;
+    const headingLevel = range.type === "h" ? range.level : null;
 
-    const stylePatch: Record<string, string | null> = {};
-    if (hasFont) stylePatch["font-family"] = font as string;
-    if (hasFontSize) stylePatch["font-size"] = fontSize as string;
+    if (!hasFont && !hasFontSize && !bold && !italic && !headingLevel) continue;
 
-    editor.update(
-      () => {
-        const root = $getRoot();
-        const points = findPointsForOffsets(root, range.start, range.end);
-        if (!points) return;
+    const domRange = createRangeFromOffsets(root, range.start, range.end);
+    if (!domRange) continue;
 
-        const selection = $createRangeSelection();
-        selection.anchor.set(points.anchor.key, points.anchor.offset, "text");
-        selection.focus.set(points.focus.key, points.focus.offset, "text");
-        $setSelection(selection);
+    const sel = window.getSelection();
+    if (!sel) continue;
+    sel.removeAllRanges();
+    sel.addRange(domRange);
 
-        if ($isRangeSelection(selection)) {
-          $patchStyleText(selection, stylePatch);
+    if (headingLevel) {
+      const container = domRange.commonAncestorContainer;
+      let block: HTMLElement | null =
+        container.nodeType === Node.TEXT_NODE
+          ? (container.parentElement as HTMLElement)
+          : (container as HTMLElement);
+      while (block && block !== root) {
+        const tag = block.tagName;
+        if (["P", "H1", "H2", "H3", "DIV"].includes(tag)) {
+          const newTag = `h${headingLevel}` as "h1" | "h2" | "h3";
+          if (tag !== newTag.toUpperCase()) {
+            const wrapper = document.createElement(newTag);
+            wrapper.innerHTML = block.innerHTML;
+            block.parentNode?.replaceChild(wrapper, block);
+          }
+          break;
         }
+        block = block.parentElement;
+      }
+    } else {
+      const fragment = domRange.extractContents();
+      let node: DocumentFragment | HTMLElement = fragment;
+      if (italic) {
+        const em = document.createElement("em");
+        em.appendChild(node);
+        node = em;
+      }
+      if (bold) {
+        const strong = document.createElement("strong");
+        strong.appendChild(node);
+        node = strong;
+      }
+      if (hasFont || hasFontSize) {
+        const span = document.createElement("span");
+        const styles: string[] = [];
+        if (hasFont) styles.push(`font-family: ${font}`);
+        if (hasFontSize) styles.push(`font-size: ${fontSize}`);
+        span.style.cssText = styles.join("; ");
+        span.appendChild(node);
+        node = span;
+      }
+      domRange.insertNode(node);
+    }
 
-        $setSelection(null);
-      },
-      { tag: "apply-ranges" }
-    );
+    sel.removeAllRanges();
   }
 }

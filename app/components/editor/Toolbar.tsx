@@ -1,13 +1,3 @@
-import {
-  FORMAT_TEXT_COMMAND,
-  REDO_COMMAND,
-  UNDO_COMMAND,
-  type LexicalEditor,
-} from "lexical";
-import { INSERT_TABLE_COMMAND } from "@lexical/table";
-import { $getSelection, $isRangeSelection } from "lexical";
-import { $createHeadingNode } from "@lexical/rich-text";
-import { $getSelectionStyleValueForProperty, $patchStyleText, $setBlocksType } from "@lexical/selection";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -20,12 +10,35 @@ import {
 } from "~/lib/doc/fonts";
 import { TOGGLE_MODE_SHORTCUT } from "~/lib/doc/hotkeys";
 import type { EditorMode } from "~/lib/doc/schema";
+import type { EditorApi } from "./core/EditorContext";
 
 interface ToolbarProps {
-  editor: LexicalEditor | null;
+  editor: EditorApi | null;
   mode: EditorMode;
   onToggleMode: () => void;
   onInsertImage: () => void;
+}
+
+function getSelectionFontInfo(): { font: string; fontSize: string } | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  let node: Node | null = range.commonAncestorContainer;
+  if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+  if (!node || !(node instanceof HTMLElement)) return null;
+  let el: HTMLElement | null = node as HTMLElement;
+  while (el) {
+    const font = el.style?.fontFamily || getComputedStyle(el).fontFamily;
+    const fs = el.style?.fontSize || getComputedStyle(el).fontSize;
+    if (font || fs) {
+      return {
+        font: font?.split(",")[0]?.trim().replace(/['"]/g, "") || DEFAULT_FONT,
+        fontSize: fs || DEFAULT_FONT_SIZE,
+      };
+    }
+    el = el.parentElement;
+  }
+  return { font: DEFAULT_FONT, fontSize: DEFAULT_FONT_SIZE };
 }
 
 export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarProps) {
@@ -42,50 +55,36 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
 
   useEffect(() => {
     if (!editor) return;
-    return editor.registerUpdateListener(({ editorState }) => {
-      editorState.read(() => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) {
-          const font =
-            $getSelectionStyleValueForProperty(selection, "font-family", DEFAULT_FONT) || DEFAULT_FONT;
-          setCurrentFont((prev) => (font === prev ? prev : font));
-
-          const fontSize =
-            $getSelectionStyleValueForProperty(selection, "font-size", DEFAULT_FONT_SIZE) || "";
-          const hasSelection = !selection.isCollapsed();
-          if (hasSelection && fontSize === "") {
-            setIsFontSizeMixed(true);
-            setCurrentFontSize(DEFAULT_FONT_SIZE);
-          } else {
-            setIsFontSizeMixed(false);
-            const resolved = fontSize || DEFAULT_FONT_SIZE;
-            setCurrentFontSize(resolved);
-            const isPreset = FONT_SIZE_OPTIONS.some((o) => o.value === resolved && o.value !== "custom");
-            setIsCustomFontSize(!isPreset && resolved !== DEFAULT_FONT_SIZE);
-            if (!isPreset && resolved !== DEFAULT_FONT_SIZE) {
-              const px = Number.parseInt(resolved, 10);
-              if (!Number.isNaN(px)) setCustomFontSizePx(String(px));
-            }
-          }
+    const updateFromSelection = () => {
+      const info = getSelectionFontInfo();
+      if (info) {
+        setCurrentFont((prev) => (info.font === prev ? prev : info.font));
+        setCurrentFontSize((prev) => (info.fontSize === prev ? prev : info.fontSize));
+        const isPreset = FONT_SIZE_OPTIONS.some(
+          (o) => o.value === info.fontSize && o.value !== "custom",
+        );
+        setIsCustomFontSize(!isPreset && info.fontSize !== DEFAULT_FONT_SIZE);
+        if (!isPreset && info.fontSize !== DEFAULT_FONT_SIZE) {
+          const px = Number.parseInt(info.fontSize, 10);
+          if (!Number.isNaN(px)) setCustomFontSizePx(String(px));
         }
-      });
-    });
+      }
+    };
+    const unregister = editor.registerUpdateListener(updateFromSelection);
+    document.addEventListener("selectionchange", updateFromSelection);
+    return () => {
+      unregister();
+      document.removeEventListener("selectionchange", updateFromSelection);
+    };
   }, [editor]);
 
-  const run = (fn: (editor: LexicalEditor) => void) => {
+  const run = (fn: (editor: EditorApi) => void) => {
     if (!editor) return;
     fn(editor);
   };
 
   const onFontChange = (value: string) => {
-    run((e) =>
-      e.update(() => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) {
-          $patchStyleText(selection, { "font-family": value });
-        }
-      })
-    );
+    run((e) => e.execFormat("font", value));
   };
 
   const onFontSizeChange = (value: string) => {
@@ -94,14 +93,7 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
       return;
     }
     setIsCustomFontSize(false);
-    run((e) =>
-      e.update(() => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) {
-          $patchStyleText(selection, { "font-size": value === "default" ? null : value });
-        }
-      })
-    );
+    run((e) => e.execFormat("fontSize", value === "default" ? "" : value));
   };
 
   const onCustomFontSizeApply = () => {
@@ -113,24 +105,14 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
     const value = `${clampFontSizePx(px)}px`;
     setIsCustomFontSize(false);
     setCurrentFontSize(value);
-    run((e) =>
-      e.update(() => {
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) {
-          $patchStyleText(selection, { "font-size": value });
-        }
-      })
-    );
+    run((e) => e.execFormat("fontSize", value));
   };
 
   const onInsertTable = () => {
-    run((e) =>
-      e.dispatchCommand(INSERT_TABLE_COMMAND, {
-        rows: String(tableRows),
-        columns: String(tableCols),
-        includeHeaders: tableIncludeHeaders,
-      })
-    );
+    run((e) => {
+      e.focus();
+      e.insertTable(tableRows, tableCols, tableIncludeHeaders);
+    });
     setShowTablePicker(false);
   };
 
@@ -147,17 +129,17 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white/90 p-3 shadow-sm">
-      <button className="toolbar-btn" onClick={() => run((e) => e.dispatchCommand(UNDO_COMMAND, undefined))}>
+      <button className="toolbar-btn" onClick={() => run((e) => e.undo())}>
         Undo
       </button>
-      <button className="toolbar-btn" onClick={() => run((e) => e.dispatchCommand(REDO_COMMAND, undefined))}>
+      <button className="toolbar-btn" onClick={() => run((e) => e.redo())}>
         Redo
       </button>
       <span className="mx-1 h-6 w-px bg-zinc-300" />
-      <button className="toolbar-btn" onClick={() => run((e) => e.dispatchCommand(FORMAT_TEXT_COMMAND, "bold"))}>
+      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("bold"))}>
         Bold
       </button>
-      <button className="toolbar-btn" onClick={() => run((e) => e.dispatchCommand(FORMAT_TEXT_COMMAND, "italic"))}>
+      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("italic"))}>
         Italic
       </button>
       <select
@@ -214,34 +196,10 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
           </>
         )}
       </div>
-      <button
-        className="toolbar-btn"
-        onClick={() =>
-          run((e) =>
-            e.update(() => {
-              const selection = $getSelection();
-              if ($isRangeSelection(selection)) {
-                $setBlocksType(selection, () => $createHeadingNode("h1"));
-              }
-            }),
-          )
-        }
-      >
+      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("blockType", "h1"))}>
         H1
       </button>
-      <button
-        className="toolbar-btn"
-        onClick={() =>
-          run((e) =>
-            e.update(() => {
-              const selection = $getSelection();
-              if ($isRangeSelection(selection)) {
-                $setBlocksType(selection, () => $createHeadingNode("h2"));
-              }
-            }),
-          )
-        }
-      >
+      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("blockType", "h2"))}>
         H2
       </button>
       <div className="relative" ref={tablePickerRef}>
@@ -251,11 +209,15 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
           title="Insert table"
           aria-expanded={showTablePicker}
           aria-haspopup="dialog"
+          data-testid="insert-table-btn"
         >
           Insert Table
         </button>
         {showTablePicker && (
-          <div className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] rounded-md border border-zinc-200 bg-white p-3 shadow-lg">
+          <div
+            className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] rounded-md border border-zinc-200 bg-white p-3 shadow-lg"
+            data-testid="table-picker"
+          >
             <div className="mb-2 grid grid-cols-2 gap-2 text-sm">
               <label className="flex flex-col gap-0.5">
                 <span className="text-zinc-600">Rows</span>
@@ -289,7 +251,11 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
               />
               <span className="text-zinc-600">Header row</span>
             </label>
-            <button className="w-full rounded bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700" onClick={onInsertTable}>
+            <button
+              className="w-full rounded bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
+              onClick={onInsertTable}
+              data-testid="table-picker-insert"
+            >
               Insert
             </button>
           </div>

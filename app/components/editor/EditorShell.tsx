@@ -1,37 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { $getRoot, type LexicalEditor } from "lexical";
-import { HeadingNode, QuoteNode } from "@lexical/rich-text";
-import { ListItemNode, ListNode } from "@lexical/list";
-import { LinkNode } from "@lexical/link";
-import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { ContinuousView } from "./ContinuousView";
 import { PaginatedView } from "./PaginatedView";
 import { Toolbar } from "./Toolbar";
-import { ImagePlugin, INSERT_IMAGE_TOKEN_COMMAND, INSERT_IMAGE_ASSET_COMMAND } from "./plugins/ImagePlugin";
+import { EditorProvider, useEditor, type EditorApi } from "./core/EditorContext";
+import { ContentEditableRoot } from "./core/ContentEditableRoot";
+import { TablePlugin } from "./plugins/TablePlugin";
 import { PaginationPlugin } from "./plugins/PaginationPlugin";
 import { bindToggleModeShortcut } from "~/lib/doc/hotkeys";
+import { applyMetadataRanges } from "~/lib/doc/applyRanges";
 import { applyContentToEditor, applyLoadedPayload, loadDocument } from "~/lib/doc/deserialize";
 import { buildPayload, exportMarkdown, saveDocument } from "~/lib/doc/serialize";
 import type { AssetRef, EditorMode, PerfSnapshot } from "~/lib/doc/schema";
 import { VersionPanel } from "~/components/versioning";
 import { addPendingAsset, AssetsProvider } from "./AssetsContext";
-import { ImageNode } from "./nodes/ImageNode";
-import { PageBreakNode } from "./nodes/PageBreakNode";
-
-function EditorRefBridge({ onReady }: { onReady: (editor: LexicalEditor) => void }) {
-  const [editor] = useLexicalComposerContext();
-  useEffect(() => onReady(editor), [editor, onReady]);
-  return null;
-}
 
 function normalizeAsset(name: string, data: Uint8Array): AssetRef {
   return {
@@ -43,23 +25,18 @@ function normalizeAsset(name: string, data: Uint8Array): AssetRef {
   };
 }
 
-const editorTheme = {
-  paragraph: "mb-2",
-  text: {
-    bold: "font-semibold",
-    italic: "italic",
-  },
-  heading: {
-    h1: "text-3xl font-bold leading-tight mt-4 mb-3",
-    h2: "text-2xl font-semibold leading-tight mt-4 mb-2",
-    h3: "text-xl font-semibold leading-tight mt-3 mb-2",
-  },
-  "yeno-page-break": "page-break-node",
-  table: "editor-table w-full border-collapse my-2",
-  tableCell: "editor-table-cell border border-zinc-300 p-1 align-top",
-  tableCellHeader: "editor-table-cell-header bg-zinc-100 font-semibold border border-zinc-300 p-1 align-top",
-  tableRow: "editor-table-row",
-};
+function assetToDataUrl(asset: AssetRef): string | null {
+  if (!asset.bytes?.length) return null;
+  try {
+    const mime = asset.name.toLowerCase().endsWith(".png") ? "image/png" :
+      asset.name.toLowerCase().endsWith(".gif") ? "image/gif" :
+      asset.name.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
+    const base64 = btoa(String.fromCharCode(...asset.bytes));
+    return `data:${mime};base64,${base64}`;
+  } catch {
+    return null;
+  }
+}
 
 /** DIN A4 at 96 DPI: 210mm × 297mm → 794×1123 px */
 const PAGE_WIDTH_PX = 794;
@@ -69,7 +46,7 @@ const PAGE_STRIDE_PX = PAGE_HEIGHT_PX + PAGE_GAP_PX;
 const BENCHMARK_LINE_CHARS = 2048;
 
 export function EditorShell() {
-  const [editor, setEditor] = useState<LexicalEditor | null>(null);
+  const [editor, setEditor] = useState<EditorApi | null>(null);
   const [mode, setMode] = useState<EditorMode>("continuous");
   const [filePath, setFilePath] = useState("/tmp/document.grokedoc");
   const [markdownPath, setMarkdownPath] = useState("/tmp/document.md");
@@ -82,50 +59,40 @@ export function EditorShell() {
   const [pageCount, setPageCount] = useState(1);
   const [showVersionPanel, setShowVersionPanel] = useState(false);
 
-  const initialConfig = useMemo(
-    () => ({
-      namespace: "yeno-editor",
-      theme: editorTheme,
-      onError(error: Error) {
-        throw error;
-      },
-      nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, LinkNode, ImageNode, PageBreakNode, TableNode, TableRowNode, TableCellNode],
-    }),
-    [],
-  );
-
   const appendPerf = useCallback((entry: PerfSnapshot) => {
     setPerf((prev) => [entry, ...prev].slice(0, 8));
   }, []);
 
-  const applyLoadedText = useCallback(
-    (text: string, assets?: AssetRef[]) => {
-      if (!editor) return;
-      applyContentToEditor(editor, text, assets ?? []);
+  const setContentImpl = useCallback(
+    (root: HTMLElement, text: string, ranges?: import("~/lib/doc/schema").MetadataRange[], assetList?: AssetRef[]) => {
+      applyContentToEditor(root, text, assetList ?? assets);
+      if (ranges?.length) applyMetadataRanges(root, ranges);
     },
-    [editor],
+    [assets],
+  );
+
+  const applyLoadedText = useCallback(
+    (text: string, assetsList?: AssetRef[]) => {
+      const root = editor?.getRootElement();
+      if (!root) return;
+      applyContentToEditor(root, text, assetsList ?? assets);
+    },
+    [editor, assets],
   );
 
   const onToggleMode = useCallback(() => {
-    setMode((prev) => {
-      const next = prev === "continuous" ? "paginated" : "continuous";
-      return next;
-    });
+    setMode((prev) => (prev === "continuous" ? "paginated" : "continuous"));
   }, []);
 
   useEffect(() => bindToggleModeShortcut(onToggleMode), [onToggleMode]);
 
   useEffect(() => {
-    if (mode !== "paginated") {
-      return;
-    }
+    if (mode !== "paginated") return;
 
     const updatePaginationStats = () => {
       const container = paginatedContainerRef.current;
       const editable = document.querySelector<HTMLElement>(".editor-content.paged");
-      if (!container || !editable) {
-        return;
-      }
+      if (!container || !editable) return;
 
       const computedPageCount = Math.max(1, Math.ceil(editable.scrollHeight / PAGE_STRIDE_PX));
       setPageCount(computedPageCount);
@@ -140,17 +107,18 @@ export function EditorShell() {
         }
       }
 
-      const nextPage = Math.max(1, Math.min(computedPageCount, Math.floor(cursorY / PAGE_STRIDE_PX) + 1));
-      setCurrentPage((prevPage) => {
-        return prevPage === nextPage ? prevPage : nextPage;
-      });
+      const nextPage = Math.max(
+        1,
+        Math.min(computedPageCount, Math.floor(cursorY / PAGE_STRIDE_PX) + 1),
+      );
+      setCurrentPage((prev) => (prev === nextPage ? prev : nextPage));
     };
 
     updatePaginationStats();
     const container = paginatedContainerRef.current;
     const onScroll = () => updatePaginationStats();
     const onSelectionChange = () => updatePaginationStats();
-    const intervalId = window.setInterval(() => updatePaginationStats(), 250);
+    const intervalId = window.setInterval(updatePaginationStats, 250);
     container?.addEventListener("scroll", onScroll);
     document.addEventListener("selectionchange", onSelectionChange);
 
@@ -180,12 +148,11 @@ export function EditorShell() {
 
   const onLoad = useCallback(async () => {
     const result = await loadDocument(filePath);
-    for (const asset of result.payload.assets) {
-      addPendingAsset(asset);
-    }
+    for (const asset of result.payload.assets) addPendingAsset(asset);
     setAssets(result.payload.assets);
-    if (editor) {
-      applyLoadedPayload(editor, result.payload);
+    const root = editor?.getRootElement();
+    if (root) {
+      applyLoadedPayload(root, result.payload);
       setStatus(`Loaded ${filePath}`);
     } else {
       setStatus("Editor not ready. Try opening again.");
@@ -197,7 +164,6 @@ export function EditorShell() {
     fileInputRef.current?.click();
   }, []);
 
-  // Dev: Insert test image without file picker (80x80 red square PNG for visibility)
   const onInsertTestImage = useCallback(() => {
     if (!editor) return;
     const canvas = document.createElement("canvas");
@@ -217,17 +183,11 @@ export function EditorShell() {
     const asset = normalizeAsset(name, bytes);
     addPendingAsset(asset);
     setAssets((prev) => [...prev, asset]);
-    editor.dispatchCommand(INSERT_IMAGE_TOKEN_COMMAND, { name, alt: "Test image" });
+    editor.insertImage(name, "Test image", dataUrl);
     setStatus("Inserted test image");
   }, [editor]);
 
-  const PAGINATION_TEST_TEXT = `Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.
-
-Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros et accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi. Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat.
-
-Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat. Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros et accumsan et iusto odio dignissim qui blandit praesent luptatum zzril delenit augue duis dolore te feugait nulla facilisi.
-
-Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming id quod mazim placerat facer possim assum. Lorem`;
+  const PAGINATION_TEST_TEXT = `Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.`;
 
   const onLoadPaginationTest = useCallback(() => {
     if (!editor) return;
@@ -261,7 +221,7 @@ Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming 
       payloadBytes: content.length,
     });
     setStatus(`Loaded synthetic 10MB text in ${Math.round(elapsedMs)}ms`);
-  }, [appendPerf, applyLoadedText, editor, mode]);
+  }, [appendPerf, applyLoadedText, editor]);
 
   const onPickImage = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -271,44 +231,44 @@ Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming 
       const asset = normalizeAsset(file.name, bytes);
       addPendingAsset(asset);
       setAssets((prev) => [...prev, asset]);
-      editor.dispatchCommand(INSERT_IMAGE_TOKEN_COMMAND, {
-        name: file.name,
-        alt: file.name,
-      });
+      const dataUrl = assetToDataUrl(asset);
+      editor.insertImage(file.name, file.name, dataUrl ?? undefined);
       event.target.value = "";
     },
     [editor],
   );
 
-  useEffect(() => {
-    if (!editor) return;
-    return editor.registerCommand(
-      INSERT_IMAGE_ASSET_COMMAND,
-      (payload) => {
-        const asset = normalizeAsset(payload.name, payload.data);
-        addPendingAsset(asset);
-        setAssets((prev) => [...prev, asset]);
-        editor.dispatchCommand(INSERT_IMAGE_TOKEN_COMMAND, {
-          name: payload.name,
-          alt: payload.alt,
-        });
-        return true;
-      },
-      0,
-    );
-  }, [editor]);
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) return;
+          e.preventDefault();
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result as string;
+            const name = `pasted-${Date.now()}-${file.name || "image.png"}`;
+            const binary = atob(dataUrl.split(",")[1]!);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const asset = normalizeAsset(name, bytes);
+            addPendingAsset(asset);
+            setAssets((prev) => [...prev, asset]);
+            editor?.insertImage(name, name, dataUrl);
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
+      }
+    },
+    [editor],
+  );
 
-  // Get current document text content
-  const getCurrentContent = useCallback((): string => {
-    if (!editor) return "";
-    let text = "";
-    editor.getEditorState().read(() => {
-      text = $getRoot().getTextContent();
-    });
-    return text;
-  }, [editor]);
+  const getCurrentContent = useCallback(() => editor?.getTextContent() ?? "", [editor]);
 
-  // Handle version restore
   const onVersionRestore = useCallback(
     (content: string) => {
       applyLoadedText(content, assets);
@@ -317,110 +277,119 @@ Nam liber tempor cum soluta nobis eleifend option congue nihil imperdiet doming 
     [applyLoadedText, assets],
   );
 
+  const editorContent =
+    mode === "continuous" ? (
+      <ContinuousView>
+        <ContentEditableRoot
+          className="editor-content min-h-[70vh] rounded-lg p-4 outline-none mb-2"
+          data-testid="editor-content"
+          onPaste={handlePaste}
+        />
+      </ContinuousView>
+    ) : (
+      <PaginatedView
+        containerRef={paginatedContainerRef}
+        currentPage={currentPage}
+        pageCount={pageCount}
+        pageStridePx={PAGE_STRIDE_PX}
+        pageWidthPx={PAGE_WIDTH_PX}
+      >
+        <ContentEditableRoot
+          className="editor-content paged rounded-lg p-8 outline-none"
+          data-testid="editor-content"
+          style={
+            {
+              "--page-width": `${PAGE_WIDTH_PX}px`,
+              "--page-height": `${PAGE_HEIGHT_PX}px`,
+              "--page-gap": `${PAGE_GAP_PX}px`,
+              minHeight: `${Math.max(pageCount, 1) * PAGE_STRIDE_PX - PAGE_GAP_PX}px`,
+            } as CSSProperties
+          }
+          onPaste={handlePaste}
+        />
+      </PaginatedView>
+    );
+
   return (
     <main className="mx-auto flex h-screen max-w-7xl flex-col gap-3 p-4 text-zinc-900">
-      <Toolbar editor={editor} mode={mode} onToggleMode={onToggleMode} onInsertImage={onInsertImage} />
+      <EditorProvider
+        setContentImpl={setContentImpl}
+        onReady={setEditor}
+      >
+        <Toolbar editor={editor} mode={mode} onToggleMode={onToggleMode} onInsertImage={onInsertImage} />
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
-        <label className="text-sm font-medium">Doc path</label>
-        <input
-          className="min-w-[22rem] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm"
-          value={filePath}
-          onChange={(event) => setFilePath(event.target.value)}
-        />
-        <button className="toolbar-btn" onClick={onLoad}>
-          Open
-        </button>
-        <button className="toolbar-btn" onClick={onSave}>
-          Save
-        </button>
-        <button
-          className="toolbar-btn bg-purple-100 text-purple-700 hover:bg-purple-200"
-          onClick={() => setShowVersionPanel(true)}
-        >
-          Versions
-        </button>
-        <input
-          className="min-w-[22rem] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm"
-          value={markdownPath}
-          onChange={(event) => setMarkdownPath(event.target.value)}
-        />
-        <button className="toolbar-btn" onClick={onExportMarkdown}>
-          Export .md
-        </button>
-        <button className="toolbar-btn" onClick={runLargeDocumentBenchmark}>
-          10MB Benchmark
-        </button>
-        <button
-          className="toolbar-btn bg-amber-100 text-amber-800 hover:bg-amber-200"
-          onClick={onInsertTestImage}
-          title="Insert test image (no file dialog)"
-        >
-          Test Image
-        </button>
-        <button
-          className="toolbar-btn bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
-          onClick={onLoadPaginationTest}
-          title="Load Lorem ipsum test text 5x for pagination testing"
-        >
-          Pagination Test
-        </button>
-      </div>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
+          <label className="text-sm font-medium">Doc path</label>
+          <input
+            className="min-w-[22rem] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm"
+            value={filePath}
+            onChange={(e) => setFilePath(e.target.value)}
+          />
+          <button className="toolbar-btn" onClick={onLoad}>Open</button>
+          <button className="toolbar-btn" onClick={onSave}>Save</button>
+          <button
+            className="toolbar-btn bg-purple-100 text-purple-700 hover:bg-purple-200"
+            onClick={() => setShowVersionPanel(true)}
+          >
+            Versions
+          </button>
+          <input
+            className="min-w-[22rem] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-sm"
+            value={markdownPath}
+            onChange={(e) => setMarkdownPath(e.target.value)}
+          />
+          <button className="toolbar-btn" onClick={onExportMarkdown}>Export .md</button>
+          <button className="toolbar-btn" onClick={runLargeDocumentBenchmark}>10MB Benchmark</button>
+          <button
+            className="toolbar-btn bg-amber-100 text-amber-800 hover:bg-amber-200"
+            onClick={onInsertTestImage}
+            title="Insert test image (no file dialog)"
+          >
+            Test Image
+          </button>
+          <button
+            className="toolbar-btn bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+            onClick={onLoadPaginationTest}
+            title="Load Lorem ipsum test text 5x for pagination testing"
+          >
+            Pagination Test
+          </button>
+          <button
+            className="toolbar-btn bg-cyan-100 text-cyan-800 hover:bg-cyan-200"
+            data-testid="test-table-resize-btn"
+            onClick={() => {
+              const table = document.querySelector(".editor-content table");
+              if (table) {
+                window.dispatchEvent(new CustomEvent("table-resizer-scan"));
+                setStatus("Table resize test: Triggered scan. (Resize handles to be implemented.)");
+              } else if (editor) {
+                setStatus("Table resize test: Inserting table...");
+                editor.focus();
+                editor.insertTable(3, 4, true);
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent("table-resizer-scan"));
+                  setStatus("Table inserted. Resize handles to be implemented.");
+                }, 500);
+              } else {
+                setStatus("Table resize test: Editor not ready.");
+              }
+            }}
+            title="Insert table (if none) and test column resize."
+          >
+            Test Table Resize
+          </button>
+        </div>
 
-      <LexicalComposer initialConfig={initialConfig}>
         <AssetsProvider assets={assets}>
-          <EditorRefBridge onReady={setEditor} />
-          <HistoryPlugin />
-          <OnChangePlugin ignoreSelectionChange onChange={() => {}} />
-          <ImagePlugin />
           <TablePlugin />
           <PaginationPlugin
             pageHeightPx={PAGE_HEIGHT_PX}
             pageGapPx={PAGE_GAP_PX}
             enabled={mode === "paginated"}
           />
-          {mode === "continuous" ? (
-          <ContinuousView>
-            <RichTextPlugin
-              contentEditable={
-                <ContentEditable
-                  className="editor-content min-h-[70vh] rounded-lg p-4 outline-none"
-                  data-testid="editor-content"
-                />
-              }
-              placeholder={<p className="text-zinc-400">Start writing...</p>}
-              ErrorBoundary={LexicalErrorBoundary}
-            />
-          </ContinuousView>
-        ) : (
-          <PaginatedView
-            containerRef={paginatedContainerRef}
-            currentPage={currentPage}
-            pageCount={pageCount}
-            pageStridePx={PAGE_STRIDE_PX}
-            pageWidthPx={PAGE_WIDTH_PX}
-          >
-            <RichTextPlugin
-              contentEditable={
-                <ContentEditable
-                  className="editor-content paged rounded-lg p-8 outline-none"
-                  style={
-                    {
-                      "--page-width": `${PAGE_WIDTH_PX}px`,
-                      "--page-height": `${PAGE_HEIGHT_PX}px`,
-                      "--page-gap": `${PAGE_GAP_PX}px`,
-                      minHeight: `${Math.max(pageCount, 1) * PAGE_STRIDE_PX - PAGE_GAP_PX}px`,
-                    } as CSSProperties
-                  }
-                />
-              }
-              placeholder={<p className="text-zinc-400">Start writing...</p>}
-              ErrorBoundary={LexicalErrorBoundary}
-            />
-          </PaginatedView>
-        )}
+          {editorContent}
         </AssetsProvider>
-      </LexicalComposer>
+      </EditorProvider>
 
       <section className="rounded-xl border border-zinc-200 bg-white p-3 text-sm shadow-sm">
         <p className="font-medium">{status}</p>

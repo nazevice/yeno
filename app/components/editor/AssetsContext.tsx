@@ -4,7 +4,7 @@ import type { AssetRef } from "~/lib/doc/schema";
 /** Ref for assets added in the same tick before state flushes (e.g. insert then immediate render) */
 const pendingAssetsRef = { current: [] as AssetRef[] };
 
-/** Global getter for assets - used by ImageComponent when rendered in Lexical's portal (separate from React context) */
+/** Global getter for assets - used when resolving image data URLs (separate from React context) */
 let globalGetAssets: () => AssetRef[] = () => [];
 
 export function addPendingAsset(asset: AssetRef) {

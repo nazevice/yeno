@@ -1,17 +1,25 @@
-import {
-  $createParagraphNode,
-  $createTextNode,
-  $getRoot,
-  type LexicalEditor,
-} from "lexical";
 import { invoke } from "@tauri-apps/api/core";
 
-import { $createImageNode } from "~/components/editor/nodes/ImageNode";
 import { applyMetadataRanges } from "./applyRanges";
 import { splitLineByImageTokens } from "./imageToken";
+import {
+  createParagraphElement,
+  createImageBlockElement,
+} from "~/components/editor/core/blockUtils";
 import type { AssetRef, DocumentPayload, PerfSnapshot } from "./schema";
 
-const MAX_TEXT_NODE_CHARS = 2048;
+function assetToDataUrl(asset: AssetRef): string | null {
+  if (!asset.bytes?.length) return null;
+  try {
+    const mime = asset.name.toLowerCase().endsWith(".png") ? "image/png" :
+      asset.name.toLowerCase().endsWith(".gif") ? "image/gif" :
+      asset.name.toLowerCase().endsWith(".webp") ? "image/webp" : "image/jpeg";
+    const base64 = btoa(String.fromCharCode(...asset.bytes));
+    return `data:${mime};base64,${base64}`;
+  } catch {
+    return null;
+  }
+}
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -46,50 +54,52 @@ export async function loadDocument(path: string): Promise<{
 }
 
 export function applyContentToEditor(
-  editor: LexicalEditor,
+  root: HTMLElement,
   text: string,
   assets: AssetRef[],
 ): void {
-  editor.update(() => {
-    const root = $getRoot();
-    root.clear();
-    const lines = text.split("\n");
+  root.innerHTML = "";
+  const lines = text.split("\n");
 
-    for (const line of lines) {
-      const paragraph = $createParagraphNode();
-      const segments = splitLineByImageTokens(line);
+  for (const line of lines) {
+    const paragraph = createParagraphElement();
+    const segments = splitLineByImageTokens(line);
 
-      for (const seg of segments) {
-        if (seg.type === "text") {
-          if (seg.value.length === 0) {
-            paragraph.append($createTextNode(""));
-          } else {
-            for (let offset = 0; offset < seg.value.length; offset += MAX_TEXT_NODE_CHARS) {
-              const chunk = seg.value.slice(offset, offset + MAX_TEXT_NODE_CHARS);
-              paragraph.append($createTextNode(chunk));
-            }
-          }
-        } else {
-          paragraph.append(
-            $createImageNode({
-              assetName: seg.name ?? "",
-              alt: seg.alt ?? seg.name ?? "",
-              width: seg.width,
-              height: seg.height,
-            }),
-          );
+    for (const seg of segments) {
+      if (seg.type === "text") {
+        const textNode = document.createTextNode(seg.value);
+        paragraph.appendChild(textNode);
+      } else {
+        const imgBlock = createImageBlockElement(
+          seg.name ?? "",
+          seg.alt ?? seg.name ?? "",
+          seg.width,
+          seg.height,
+        );
+        const img = imgBlock.querySelector("img");
+        if (img) {
+          const asset = assets.find((a) => a.name === (seg.name ?? ""));
+          const dataUrl = asset ? assetToDataUrl(asset) : null;
+          if (dataUrl) img.src = dataUrl;
         }
+        paragraph.appendChild(imgBlock);
       }
-      root.append(paragraph);
     }
-  });
+    root.appendChild(paragraph);
+  }
+
+  if (root.childNodes.length === 0) {
+    const p = createParagraphElement();
+    p.innerHTML = "<br>";
+    root.appendChild(p);
+  }
 }
 
-export function applyLoadedPayload(editor: LexicalEditor, payload: DocumentPayload): void {
-  applyContentToEditor(editor, rebuildText(payload), payload.assets ?? []);
+export function applyLoadedPayload(root: HTMLElement, payload: DocumentPayload): void {
+  applyContentToEditor(root, rebuildText(payload), payload.assets ?? []);
 
   const ranges = payload.metadata?.ranges;
   if (ranges?.length) {
-    applyMetadataRanges(editor, ranges);
+    applyMetadataRanges(root, ranges);
   }
 }

@@ -1,10 +1,9 @@
 import JSZip from "jszip";
 import { invoke } from "@tauri-apps/api/core";
-import { $getRoot, type LexicalEditor } from "lexical";
-import { $generateHtmlFromNodes } from "@lexical/html";
 
 import { DEFAULT_FONT, DEFAULT_FONT_SIZE, normalizeFontSizeToPx } from "./fonts";
 import type { DocumentPayload, PerfSnapshot } from "./schema";
+import type { EditorApi } from "~/components/editor/core/EditorContext";
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -72,20 +71,16 @@ function extractRangesFromHtml(html: string): DocumentPayload["metadata"]["range
   return ranges;
 }
 
-export function buildPayload(editor: LexicalEditor): DocumentPayload {
-  let text = "";
-  let html = "";
-  editor.getEditorState().read(() => {
-    text = $getRoot().getTextContent();
-    html = $generateHtmlFromNodes(editor, null);
-  });
+export function buildPayload(editor: EditorApi): DocumentPayload {
+  const text = editor.getTextContent();
+  const html = editor.getHTML();
 
   return {
     baseText: text,
     chunks: [{ type: "original", offset: 0, len: text.length, source: "baseText" }],
     metadata: {
       ranges: extractRangesFromHtml(html),
-      custom: { engine: "lexical" },
+      custom: { engine: "yeno" },
     },
     versions: [],
     assets: [],

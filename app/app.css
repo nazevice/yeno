@@ -27,6 +27,7 @@ body {
 .editor-content table {
   border-collapse: collapse;
   width: 100%;
+  table-layout: fixed;
 }
 .editor-content th,
 .editor-content td {
@@ -35,6 +36,46 @@ body {
 }
 .editor-content th {
   background: #f4f4f5;
+}
+
+/* Table resize handles */
+.table-resize-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.table-resize-handles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.table-resize-handle {
+  position: absolute;
+  pointer-events: auto;
+  z-index: 10;
+  cursor: col-resize;
+}
+
+.table-resize-handle-row {
+  cursor: row-resize;
+}
+
+.table-resize-handle-col:hover,
+.table-resize-handle-row:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+.table-resize-handle-col {
+  margin-left: -3px;
+}
+
+.table-resize-handle-row {
+  margin-top: -3px;
 }
 
 .editor-surface.paginated {

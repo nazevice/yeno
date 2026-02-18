@@ -1,8 +1,6 @@
 import { useEffect, useRef } from "react";
-import { $getNodeByKey, $getRoot, type LexicalNode, type LexicalEditor } from "lexical";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-
-import { $createPageBreakNode, $isPageBreakNode } from "../nodes/PageBreakNode";
+import { useEditorContext } from "../core/EditorContext";
+import { getPaginateableBlocks, createPageBreakElement } from "../core/blockUtils";
 
 interface PaginationPluginProps {
   pageHeightPx: number;
@@ -10,56 +8,42 @@ interface PaginationPluginProps {
   enabled: boolean;
 }
 
-/** Returns block height including margins (getBoundingClientRect excludes margins). */
-function getBlockHeightPx(editor: LexicalEditor, nodeKey: string): number {
-  const el = editor.getElementByKey(nodeKey);
-  if (!el || !(el instanceof HTMLElement)) return 0;
-  const rect = el.getBoundingClientRect();
+const ESTIMATED_LINE_HEIGHT_PX = 28;
+const SAFETY_BUFFER_PX = 100;
+
+function getBlockHeightPx(block: HTMLElement): number {
+  const rect = block.getBoundingClientRect();
   if (rect.height <= 0) return 0;
-  const style = getComputedStyle(el);
+  const style = getComputedStyle(block);
   const marginTop = parseFloat(style.marginTop) || 0;
   const marginBottom = parseFloat(style.marginBottom) || 0;
   return rect.height + marginTop + marginBottom;
 }
 
-/** Returns root-level blocks in document order. Treats List as single block (no ListItem splitting). */
-function getPaginateableBlocks(root: ReturnType<typeof $getRoot>): { node: LexicalNode; key: string }[] {
-  const blocks: { node: LexicalNode; key: string }[] = [];
-  for (const child of root.getChildren()) {
-    if ($isPageBreakNode(child)) continue;
-    blocks.push({ node: child, key: child.getKey() });
-  }
-  return blocks;
-}
-
-/** Approximate px per line (line-height 1.75 * 16px base). Used when DOM measurement fails. */
-const ESTIMATED_LINE_HEIGHT_PX = 28;
-
-/** Keys of blocks that need a PageBreak inserted BEFORE them. */
 function computePageBreaksBefore(
-  editor: LexicalEditor,
-  blocks: { node: LexicalNode; key: string }[],
+  root: HTMLElement,
+  blocks: HTMLElement[],
   maxPageHeight: number,
   firstPageMaxHeight: number,
-): Set<string> {
-  const measured = blocks.map((b) => {
-    const h = getBlockHeightPx(editor, b.key);
-    if (h > 0) return { key: b.key, height: h };
-    const text = b.node.getTextContent();
+): Set<HTMLElement> {
+  const measured = blocks.map((block) => {
+    const h = getBlockHeightPx(block);
+    if (h > 0) return { block, height: h };
+    const text = block.innerText || block.textContent || "";
     const lines = Math.max(1, (text.match(/\n/g)?.length ?? 0) + 1);
-    return { key: b.key, height: lines * ESTIMATED_LINE_HEIGHT_PX };
+    return { block, height: lines * ESTIMATED_LINE_HEIGHT_PX };
   });
 
-  const needsBreakBefore = new Set<string>();
+  const needsBreakBefore = new Set<HTMLElement>();
   let currentHeight = 0;
   let isFirstPage = true;
 
-  for (const { key, height: h } of measured) {
+  for (const { block, height: h } of measured) {
     if (h <= 0) continue;
     const maxForThisPage = isFirstPage ? firstPageMaxHeight : maxPageHeight;
 
     if (currentHeight + h > maxForThisPage) {
-      needsBreakBefore.add(key);
+      needsBreakBefore.add(block);
       currentHeight = h;
       isFirstPage = false;
     } else {
@@ -69,112 +53,69 @@ function computePageBreaksBefore(
   return needsBreakBefore;
 }
 
-/** Extra space at bottom of each page to prevent text being cut by page boundary. */
-const SAFETY_BUFFER_PX = 100;
-
-/** Runs reflow: insert/remove PageBreakNodes to match desired layout. Returns true if DOM was ready for measurement. */
-function runReflow(editor: LexicalEditor, pageHeightPx: number): boolean {
-  const root = editor.getRootElement();
-  if (!root) return false;
-
+function runReflow(root: HTMLElement, pageHeightPx: number): boolean {
   const style = getComputedStyle(root);
   const paddingTop = parseFloat(style.paddingTop) || 0;
   const paddingBottom = parseFloat(style.paddingBottom) || 0;
   const firstPageMaxHeight = pageHeightPx - paddingTop - paddingBottom - SAFETY_BUFFER_PX;
   const subsequentPageMaxHeight = pageHeightPx - SAFETY_BUFFER_PX;
 
-  let desiredBreaksBefore: Set<string> = new Set();
-  let currentBreaksBefore: Set<string> = new Set();
-  let blocks: { node: LexicalNode; key: string }[] = [];
+  const blocks = getPaginateableBlocks(root);
+  const desiredBreaksBefore = computePageBreaksBefore(
+    root,
+    blocks,
+    subsequentPageMaxHeight,
+    firstPageMaxHeight,
+  );
 
-  editor.getEditorState().read(() => {
-    const rootNode = $getRoot();
-    blocks = getPaginateableBlocks(rootNode);
-    desiredBreaksBefore = computePageBreaksBefore(
-      editor,
-      blocks,
-      subsequentPageMaxHeight,
-      firstPageMaxHeight,
-    );
+  const currentBreaksBefore = new Set<HTMLElement>();
+  const pageBreaksToRemove: HTMLElement[] = [];
 
-    const children = rootNode.getChildren();
-    currentBreaksBefore = new Set<string>();
-    for (let i = 0; i < children.length; i++) {
-      const node = children[i];
-      if ($isPageBreakNode(node)) continue;
-      const prev = children[i - 1];
-      if (prev && $isPageBreakNode(prev)) {
-        currentBreaksBefore.add(node.getKey());
+  for (let i = 0; i < root.children.length; i++) {
+    const child = root.children[i] as HTMLElement;
+    if (child.getAttribute?.("data-type") === "page-break") {
+      const next = root.children[i + 1] as HTMLElement | undefined;
+      if (next && next.getAttribute?.("data-type") !== "page-break" && !desiredBreaksBefore.has(next)) {
+        pageBreaksToRemove.push(child);
       }
+      continue;
     }
-  });
+    const prev = root.children[i - 1] as HTMLElement | undefined;
+    if (prev?.getAttribute?.("data-type") === "page-break") {
+      currentBreaksBefore.add(child);
+    }
+  }
 
-  /* DOM may not be ready yet. If we have blocks but all heights are 0 AND we have no breaks to add/remove, retry later. */
   const hasBlocks = blocks.length > 0;
-  const anyMeasured = blocks.some((b) => getBlockHeightPx(editor, b.key) > 0);
-  const needsAdd = [...desiredBreaksBefore].some((k) => !currentBreaksBefore.has(k));
-  const needsRemove = [...currentBreaksBefore].some((k) => !desiredBreaksBefore.has(k));
+  const anyMeasured = blocks.some((b) => getBlockHeightPx(b) > 0);
+  const needsAdd = [...desiredBreaksBefore].some((b) => !currentBreaksBefore.has(b));
+  const needsRemove = [...currentBreaksBefore].some((b) => !desiredBreaksBefore.has(b));
   if (hasBlocks && !anyMeasured && !needsAdd && !needsRemove) {
     return false;
   }
 
   if (!needsAdd && !needsRemove) return true;
 
-  editor.update(
-    () => {
-      const rootNode = $getRoot();
-      const children = rootNode.getChildren();
+  for (const pb of pageBreaksToRemove) {
+    pb.remove();
+  }
 
-      const currentBreaksBefore = new Set<string>();
-      const pageBreaksToRemove: LexicalNode[] = [];
-
-      let i = 0;
-      while (i < children.length) {
-        const node = children[i];
-        if ($isPageBreakNode(node)) {
-          const next = children[i + 1];
-          const nextBlockKey = next && !$isPageBreakNode(next) ? next.getKey() : null;
-          if (nextBlockKey && !desiredBreaksBefore.has(nextBlockKey)) {
-            pageBreaksToRemove.push(node);
-          }
-          i++;
-          continue;
-        }
-        const prev = children[i - 1];
-        if (prev && $isPageBreakNode(prev)) {
-          currentBreaksBefore.add(node.getKey());
-        }
-        i++;
-      }
-
-      for (const pb of pageBreaksToRemove) {
-        pb.remove();
-      }
-
-      for (const blockKey of desiredBreaksBefore) {
-        if (currentBreaksBefore.has(blockKey)) continue;
-        const block = $getNodeByKey(blockKey);
-        if (!block) continue;
-
-        const pageBreak = $createPageBreakNode();
-        block.getWritable().insertBefore(pageBreak, false);
-      }
-    },
-    { tag: "pagination-reflow" },
-  );
+  for (const block of desiredBreaksBefore) {
+    if (currentBreaksBefore.has(block)) continue;
+    const pageBreak = createPageBreakElement();
+    root.insertBefore(pageBreak, block);
+  }
   return true;
 }
 
-export function PaginationPlugin({
-  pageHeightPx,
-  pageGapPx,
-  enabled,
-}: PaginationPluginProps) {
-  const [editor] = useLexicalComposerContext();
+export function PaginationPlugin({ pageHeightPx, enabled }: PaginationPluginProps) {
+  const { rootRef } = useEditorContext();
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
+    const root = rootRef.current;
+    if (!root) return;
 
     const scheduleReflow = (retryCount = 0) => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -182,7 +123,7 @@ export function PaginationPlugin({
         rafRef.current = null;
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            const ok = runReflow(editor, pageHeightPx);
+            const ok = runReflow(root, pageHeightPx);
             if (!ok && retryCount < 8) {
               setTimeout(() => scheduleReflow(retryCount + 1), 50 * (retryCount + 1));
             }
@@ -191,28 +132,19 @@ export function PaginationPlugin({
       });
     };
 
-    const unregisterUpdate = editor.registerUpdateListener(({ tags }) => {
-      if (tags.has("pagination-reflow")) return;
+    const mutationObserver = new MutationObserver(() => {
       scheduleReflow();
     });
+    mutationObserver.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "class"],
+      characterData: true,
+    });
 
-    const root = editor.getRootElement();
-    let mutationObserver: MutationObserver | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-
-    if (root) {
-      mutationObserver = new MutationObserver(scheduleReflow);
-      mutationObserver.observe(root, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["style", "class"],
-        characterData: true,
-      });
-
-      resizeObserver = new ResizeObserver(scheduleReflow);
-      resizeObserver.observe(root);
-    }
+    const resizeObserver = new ResizeObserver(() => scheduleReflow());
+    resizeObserver.observe(root);
 
     scheduleReflow();
 
@@ -220,13 +152,12 @@ export function PaginationPlugin({
     window.addEventListener("pagination-delayed-reflow", onDelayedReflow);
 
     return () => {
-      unregisterUpdate();
-      mutationObserver?.disconnect();
-      resizeObserver?.disconnect();
+      mutationObserver.disconnect();
+      resizeObserver.disconnect();
       window.removeEventListener("pagination-delayed-reflow", onDelayedReflow);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [editor, enabled, pageHeightPx]);
+  }, [rootRef, enabled, pageHeightPx]);
 
   return null;
 }
