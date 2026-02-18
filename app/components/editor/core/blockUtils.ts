@@ -67,7 +67,7 @@ export function createImageBlockElement(
   div.setAttribute("data-alt", alt || assetName);
   if (width != null) div.setAttribute("data-width", String(width));
   if (height != null) div.setAttribute("data-height", String(height));
-  div.className = "my-2 inline-block";
+  div.className = "my-2 inline-block relative";
   const img = document.createElement("img");
   img.setAttribute("data-asset", assetName);
   img.alt = alt || assetName;

@@ -6,6 +6,7 @@ import { Toolbar } from "./Toolbar";
 import { EditorProvider, useEditor, type EditorApi } from "./core/EditorContext";
 import { ContentEditableRoot } from "./core/ContentEditableRoot";
 import { TablePlugin } from "./plugins/TablePlugin";
+import { ImageResizePlugin } from "./plugins/ImageResizePlugin";
 import { PaginationPlugin } from "./plugins/PaginationPlugin";
 import { bindToggleModeShortcut } from "~/lib/doc/hotkeys";
 import { applyMetadataRanges } from "~/lib/doc/applyRanges";
@@ -342,6 +343,7 @@ export function EditorShell() {
           <button className="toolbar-btn" onClick={runLargeDocumentBenchmark}>10MB Benchmark</button>
           <button
             className="toolbar-btn bg-amber-100 text-amber-800 hover:bg-amber-200"
+            data-testid="test-image-btn"
             onClick={onInsertTestImage}
             title="Insert test image (no file dialog)"
           >
@@ -382,6 +384,7 @@ export function EditorShell() {
 
         <AssetsProvider assets={assets}>
           <TablePlugin />
+          <ImageResizePlugin />
           <PaginationPlugin
             pageHeightPx={PAGE_HEIGHT_PX}
             pageGapPx={PAGE_GAP_PX}

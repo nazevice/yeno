@@ -203,6 +203,7 @@ export function EditorProvider({
         const p = createParagraphElement();
         p.innerHTML = "<br>";
         root.appendChild(p);
+        window.dispatchEvent(new CustomEvent("table-resizer-scan"));
         updateListenersRef.current.forEach((fn) => fn());
       },
       insertImage: (name, alt, dataUrl) => {
@@ -213,7 +214,7 @@ export function EditorProvider({
         div.setAttribute("contenteditable", "false");
         div.setAttribute("data-asset", name);
         div.setAttribute("data-alt", alt || name);
-        div.className = "my-2 inline-block";
+        div.className = "my-2 inline-block relative";
         const img = document.createElement("img");
         img.setAttribute("data-asset", name);
         img.alt = alt || name;
@@ -232,6 +233,7 @@ export function EditorProvider({
         const p = createParagraphElement();
         p.innerHTML = "<br>";
         root.appendChild(p);
+        window.dispatchEvent(new CustomEvent("image-resizer-scan"));
         updateListenersRef.current.forEach((fn) => fn());
       },
       focus: () => getRoot()?.focus(),
