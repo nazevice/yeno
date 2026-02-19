@@ -414,7 +414,7 @@ export function EditorShell() {
 
         <AssetsProvider assets={assets}>
           <TablePlugin />
-          <ImageResizePlugin />
+          <ImageResizePlugin key={mode} />
           <PaginationPlugin
             pageHeightPx={pageHeightPx}
             pageGapPx={PAGE_GAP_PX}

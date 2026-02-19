@@ -126,6 +126,12 @@ body {
   margin-top: -3px;
 }
 
+/* Image resize frame: visible only when image is active/focused */
+[data-type="image"].image-resize-active .image-resize-frame,
+[data-type="image"].image-resize-active .image-resize-handles {
+  visibility: visible !important;
+}
+
 .editor-surface.paginated {
   background-color: #e4e4e7;
 }

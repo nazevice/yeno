@@ -219,6 +219,10 @@ export function EditorProvider({
         img.setAttribute("data-asset", name);
         img.alt = alt || name;
         img.loading = "lazy";
+        img.onload = () => {
+          window.dispatchEvent(new CustomEvent("pagination-delayed-reflow"));
+          window.dispatchEvent(new CustomEvent("image-resizer-scan"));
+        };
         if (dataUrl) img.src = dataUrl;
         div.appendChild(img);
         const sel = window.getSelection();

@@ -30,7 +30,12 @@ const CURSOR_MAP: Record<HandlePosition, string> = {
   sw: "sw-resize",
 };
 
-function createResizeUI(block: HTMLElement): (() => void) | null {
+const ACTIVE_CLASS = "image-resize-active";
+
+function createResizeUI(
+  block: HTMLElement,
+  onBlockClick: (block: HTMLElement) => void,
+): (() => void) | null {
   if (block.querySelector(".image-resize-frame")) return null;
 
   const img = block.querySelector("img");
@@ -45,6 +50,7 @@ function createResizeUI(block: HTMLElement): (() => void) | null {
     position: absolute;
     inset: 0;
     pointer-events: none;
+    visibility: hidden;
     border: 2px solid rgb(124, 58, 237);
     border-radius: 6px;
     box-sizing: border-box;
@@ -58,6 +64,7 @@ function createResizeUI(block: HTMLElement): (() => void) | null {
     position: absolute;
     inset: 0;
     pointer-events: none;
+    visibility: hidden;
     z-index: 10;
   `;
 
@@ -137,7 +144,11 @@ function createResizeUI(block: HTMLElement): (() => void) | null {
   }
   block.appendChild(handlesContainer);
 
+  const handleBlockClick = () => onBlockClick(block);
+  block.addEventListener("mousedown", handleBlockClick);
+
   return () => {
+    block.removeEventListener("mousedown", handleBlockClick);
     frame.remove();
     handlesContainer.remove();
   };
@@ -158,10 +169,30 @@ export function ImageResizePlugin() {
   const { rootRef } = useEditorContext();
   const mountedRef = useRef<Set<HTMLElement>>(new Set());
   const teardownsRef = useRef<Map<HTMLElement, () => void>>(new Map());
+  const activeBlockRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
+
+    const setActiveBlock = (block: HTMLElement | null) => {
+      if (activeBlockRef.current === block) return;
+      activeBlockRef.current?.classList.remove(ACTIVE_CLASS);
+      if (block) {
+        block.classList.add(ACTIVE_CLASS);
+      }
+      activeBlockRef.current = block;
+    };
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!root.contains(target)) return;
+      const blocks = root.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
+      const clickedBlock = [...blocks].find((b) => b.contains(target));
+      if (!clickedBlock) {
+        setActiveBlock(null);
+      }
+    };
 
     const scan = () => {
       const blocks = root.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
@@ -169,7 +200,7 @@ export function ImageResizePlugin() {
         applyInitialDimensions(block);
         if (!mountedRef.current.has(block)) {
           mountedRef.current.add(block);
-          const teardown = createResizeUI(block);
+          const teardown = createResizeUI(block, setActiveBlock);
           if (teardown) {
             teardownsRef.current.set(block, teardown);
           }
@@ -179,6 +210,7 @@ export function ImageResizePlugin() {
 
     scan();
     window.addEventListener("image-resizer-scan", scan);
+    document.addEventListener("mousedown", handleClickOutside);
 
     const observer = new MutationObserver(() => {
       const blocks = root.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
@@ -186,7 +218,7 @@ export function ImageResizePlugin() {
         applyInitialDimensions(block);
         if (!mountedRef.current.has(block)) {
           mountedRef.current.add(block);
-          const teardown = createResizeUI(block);
+          const teardown = createResizeUI(block, setActiveBlock);
           if (teardown) {
             teardownsRef.current.set(block, teardown);
           }
@@ -197,7 +229,9 @@ export function ImageResizePlugin() {
 
     return () => {
       window.removeEventListener("image-resizer-scan", scan);
+      document.removeEventListener("mousedown", handleClickOutside);
       observer.disconnect();
+      setActiveBlock(null);
       for (const teardown of teardownsRef.current.values()) {
         teardown();
       }
