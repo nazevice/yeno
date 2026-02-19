@@ -27,12 +27,17 @@ body {
 .editor-content table {
   border-collapse: collapse;
   width: 100%;
+  max-width: 100%;
   table-layout: fixed;
 }
 .editor-content th,
 .editor-content td {
   border: 1px solid #d4d4d8;
   padding: 0.25rem 0.5rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 .editor-content th {
   background: #f4f4f5;
@@ -41,8 +46,10 @@ body {
 /* Table resize handles */
 .table-resize-wrapper {
   position: relative;
-  display: inline-block;
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .table-resize-handles {
