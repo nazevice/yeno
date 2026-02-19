@@ -40,15 +40,22 @@ function assetToDataUrl(asset: AssetRef): string | null {
 }
 
 /** DIN A4 at 96 DPI: 210mm × 297mm → 794×1123 px */
-const PAGE_WIDTH_PX = 794;
-const PAGE_HEIGHT_PX = 1123;
+const DEFAULT_PAGE_WIDTH = 794;
+const DEFAULT_PAGE_HEIGHT = 1123;
 const PAGE_GAP_PX = 48;
-const PAGE_STRIDE_PX = PAGE_HEIGHT_PX + PAGE_GAP_PX;
+const DEFAULT_CONTINUOUS_WIDTH = 896; // max-w-4xl equivalent
 const BENCHMARK_LINE_CHARS = 2048;
+
+const clampPx = (val: number, min: number, max: number) =>
+  Math.round(Math.max(min, Math.min(max, val)));
 
 export function EditorShell() {
   const [editor, setEditor] = useState<EditorApi | null>(null);
   const [mode, setMode] = useState<EditorMode>("continuous");
+  const [pageWidthPx, setPageWidthPx] = useState(DEFAULT_PAGE_WIDTH);
+  const [pageHeightPx, setPageHeightPx] = useState(DEFAULT_PAGE_HEIGHT);
+  const [continuousWidthPx, setContinuousWidthPx] = useState(DEFAULT_CONTINUOUS_WIDTH);
+  const pageStridePx = pageHeightPx + PAGE_GAP_PX;
   const [filePath, setFilePath] = useState("/tmp/document.grokedoc");
   const [markdownPath, setMarkdownPath] = useState("/tmp/document.md");
   const [assets, setAssets] = useState<AssetRef[]>([]);
@@ -95,7 +102,7 @@ export function EditorShell() {
       const editable = document.querySelector<HTMLElement>(".editor-content.paged");
       if (!container || !editable) return;
 
-      const computedPageCount = Math.max(1, Math.ceil(editable.scrollHeight / PAGE_STRIDE_PX));
+      const computedPageCount = Math.max(1, Math.ceil(editable.scrollHeight / pageStridePx));
       setPageCount(computedPageCount);
 
       const selection = window.getSelection();
@@ -110,7 +117,7 @@ export function EditorShell() {
 
       const nextPage = Math.max(
         1,
-        Math.min(computedPageCount, Math.floor(cursorY / PAGE_STRIDE_PX) + 1),
+        Math.min(computedPageCount, Math.floor(cursorY / pageStridePx) + 1),
       );
       setCurrentPage((prev) => (prev === nextPage ? prev : nextPage));
     };
@@ -128,7 +135,7 @@ export function EditorShell() {
       document.removeEventListener("selectionchange", onSelectionChange);
       window.clearInterval(intervalId);
     };
-  }, [mode]);
+  }, [mode, pageStridePx]);
 
   const onSave = useCallback(async () => {
     if (!editor) return;
@@ -278,9 +285,21 @@ export function EditorShell() {
     [applyLoadedText, assets],
   );
 
+  const onPageWidthChange = useCallback((px: number) => {
+    setPageWidthPx(clampPx(px, 200, 2000));
+  }, []);
+
+  const onPageHeightChange = useCallback((px: number) => {
+    setPageHeightPx(clampPx(px, 300, 2000));
+  }, []);
+
+  const onContinuousWidthChange = useCallback((px: number) => {
+    setContinuousWidthPx(clampPx(px, 200, 2000));
+  }, []);
+
   const editorContent =
     mode === "continuous" ? (
-      <ContinuousView>
+      <ContinuousView contentWidthPx={continuousWidthPx}>
         <ContentEditableRoot
           className="editor-content min-h-[70vh] rounded-lg p-4 outline-none mb-2"
           data-testid="editor-content"
@@ -292,18 +311,18 @@ export function EditorShell() {
         containerRef={paginatedContainerRef}
         currentPage={currentPage}
         pageCount={pageCount}
-        pageStridePx={PAGE_STRIDE_PX}
-        pageWidthPx={PAGE_WIDTH_PX}
+        pageStridePx={pageStridePx}
+        pageWidthPx={pageWidthPx}
       >
         <ContentEditableRoot
           className="editor-content paged rounded-lg p-8 outline-none"
           data-testid="editor-content"
           style={
             {
-              "--page-width": `${PAGE_WIDTH_PX}px`,
-              "--page-height": `${PAGE_HEIGHT_PX}px`,
+              "--page-width": `${pageWidthPx}px`,
+              "--page-height": `${pageHeightPx}px`,
               "--page-gap": `${PAGE_GAP_PX}px`,
-              minHeight: `${Math.max(pageCount, 1) * PAGE_STRIDE_PX - PAGE_GAP_PX}px`,
+              minHeight: `${Math.max(pageCount, 1) * pageStridePx - PAGE_GAP_PX}px`,
             } as CSSProperties
           }
           onPaste={handlePaste}
@@ -317,7 +336,18 @@ export function EditorShell() {
         setContentImpl={setContentImpl}
         onReady={setEditor}
       >
-        <Toolbar editor={editor} mode={mode} onToggleMode={onToggleMode} onInsertImage={onInsertImage} />
+        <Toolbar
+          editor={editor}
+          mode={mode}
+          onToggleMode={onToggleMode}
+          onInsertImage={onInsertImage}
+          pageWidthPx={pageWidthPx}
+          pageHeightPx={pageHeightPx}
+          onPageWidthChange={onPageWidthChange}
+          onPageHeightChange={onPageHeightChange}
+          continuousWidthPx={continuousWidthPx}
+          onContinuousWidthChange={onContinuousWidthChange}
+        />
 
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
           <label className="text-sm font-medium">Doc path</label>
@@ -386,7 +416,7 @@ export function EditorShell() {
           <TablePlugin />
           <ImageResizePlugin />
           <PaginationPlugin
-            pageHeightPx={PAGE_HEIGHT_PX}
+            pageHeightPx={pageHeightPx}
             pageGapPx={PAGE_GAP_PX}
             enabled={mode === "paginated"}
           />

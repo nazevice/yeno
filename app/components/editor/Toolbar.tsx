@@ -17,6 +17,12 @@ interface ToolbarProps {
   mode: EditorMode;
   onToggleMode: () => void;
   onInsertImage: () => void;
+  pageWidthPx: number;
+  pageHeightPx: number;
+  onPageWidthChange: (px: number) => void;
+  onPageHeightChange: (px: number) => void;
+  continuousWidthPx: number;
+  onContinuousWidthChange: (px: number) => void;
 }
 
 function getSelectionFontInfo(): { font: string; fontSize: string } | null {
@@ -41,17 +47,31 @@ function getSelectionFontInfo(): { font: string; fontSize: string } | null {
   return { font: DEFAULT_FONT, fontSize: DEFAULT_FONT_SIZE };
 }
 
-export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarProps) {
+export function Toolbar({
+  editor,
+  mode,
+  onToggleMode,
+  onInsertImage,
+  pageWidthPx,
+  pageHeightPx,
+  onPageWidthChange,
+  onPageHeightChange,
+  continuousWidthPx,
+  onContinuousWidthChange,
+}: ToolbarProps) {
   const [currentFont, setCurrentFont] = useState(DEFAULT_FONT);
   const [currentFontSize, setCurrentFontSize] = useState(DEFAULT_FONT_SIZE);
   const [isFontSizeMixed, setIsFontSizeMixed] = useState(false);
   const [isCustomFontSize, setIsCustomFontSize] = useState(false);
   const [customFontSizePx, setCustomFontSizePx] = useState("");
   const [showTablePicker, setShowTablePicker] = useState(false);
+  const [showInsertMenu, setShowInsertMenu] = useState(false);
+  const [showSizePopover, setShowSizePopover] = useState(false);
   const [tableRows, setTableRows] = useState(3);
   const [tableCols, setTableCols] = useState(4);
   const [tableIncludeHeaders, setTableIncludeHeaders] = useState(true);
-  const tablePickerRef = useRef<HTMLDivElement>(null);
+  const insertMenuRef = useRef<HTMLDivElement>(null);
+  const sizePopoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!editor) return;
@@ -117,159 +137,329 @@ export function Toolbar({ editor, mode, onToggleMode, onInsertImage }: ToolbarPr
   };
 
   useEffect(() => {
-    if (!showTablePicker) return;
     const handleClickOutside = (event: MouseEvent) => {
-      if (tablePickerRef.current && !tablePickerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (showInsertMenu && insertMenuRef.current && !insertMenuRef.current.contains(target)) {
+        setShowInsertMenu(false);
         setShowTablePicker(false);
+      }
+      if (showSizePopover && sizePopoverRef.current && !sizePopoverRef.current.contains(target)) {
+        setShowSizePopover(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showTablePicker]);
+  }, [showInsertMenu, showSizePopover]);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white/90 p-3 shadow-sm">
-      <button className="toolbar-btn" onClick={() => run((e) => e.undo())}>
-        Undo
-      </button>
-      <button className="toolbar-btn" onClick={() => run((e) => e.redo())}>
-        Redo
-      </button>
-      <span className="mx-1 h-6 w-px bg-zinc-300" />
-      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("bold"))}>
-        Bold
-      </button>
-      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("italic"))}>
-        Italic
-      </button>
-      <select
-        className="toolbar-btn min-w-[7rem] cursor-pointer"
-        value={FONT_OPTIONS.some((o) => o.value === currentFont) ? currentFont : DEFAULT_FONT}
-        onChange={(e) => onFontChange(e.target.value)}
-        title="Font family"
-      >
-        {FONT_OPTIONS.map(({ value, label }) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <div className="flex items-center gap-1">
-        <select
-          className="toolbar-btn min-w-[5rem] cursor-pointer"
-          value={
-            isFontSizeMixed
-              ? "mixed"
-              : isCustomFontSize
-                ? "custom"
-                : FONT_SIZE_OPTIONS.some((o) => o.value === currentFontSize && o.value !== "custom")
-                  ? currentFontSize
-                  : "default"
-          }
-          onChange={(e) => onFontSizeChange(e.target.value)}
-          title="Font size"
+    <div className="toolbar">
+      {/* Edit */}
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn-minimal"
+          onClick={() => run((e) => e.undo())}
+          title="Undo"
         >
-          <option value="mixed" disabled>
-            Mixed
-          </option>
-          {FONT_SIZE_OPTIONS.map(({ value, label }) => (
+          Undo
+        </button>
+        <button
+          className="toolbar-btn-minimal"
+          onClick={() => run((e) => e.redo())}
+          title="Redo"
+        >
+          Redo
+        </button>
+      </div>
+      <span className="toolbar-divider" />
+
+      {/* Format */}
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn-minimal"
+          onClick={() => run((e) => e.execFormat("bold"))}
+          title="Bold"
+        >
+          B
+        </button>
+        <button
+          className="toolbar-btn-minimal"
+          onClick={() => run((e) => e.execFormat("italic"))}
+          title="Italic"
+        >
+          I
+        </button>
+      </div>
+      <span className="toolbar-divider" />
+
+      {/* Style */}
+      <div className="toolbar-group">
+        <select
+          className="toolbar-select min-w-[5.5rem]"
+          value={FONT_OPTIONS.some((o) => o.value === currentFont) ? currentFont : DEFAULT_FONT}
+          onChange={(e) => onFontChange(e.target.value)}
+          title="Font"
+        >
+          {FONT_OPTIONS.map(({ value, label }) => (
             <option key={value} value={value}>
               {label}
             </option>
           ))}
         </select>
-        {isCustomFontSize && (
-          <>
-            <input
-              type="number"
-              min={8}
-              max={96}
-              value={customFontSizePx}
-              onChange={(e) => setCustomFontSizePx(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onCustomFontSizeApply()}
-              onBlur={onCustomFontSizeApply}
-              className="toolbar-btn w-14 px-1 text-center"
-              placeholder="px"
-              aria-label="Custom font size (8–96)"
-            />
-            <span className="text-sm text-zinc-500">px</span>
-          </>
-        )}
-      </div>
-      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("blockType", "h1"))}>
-        H1
-      </button>
-      <button className="toolbar-btn" onClick={() => run((e) => e.execFormat("blockType", "h2"))}>
-        H2
-      </button>
-      <div className="relative" ref={tablePickerRef}>
-        <button
-          className="toolbar-btn"
-          onClick={() => setShowTablePicker((prev) => !prev)}
-          title="Insert table"
-          aria-expanded={showTablePicker}
-          aria-haspopup="dialog"
-          data-testid="insert-table-btn"
-        >
-          Insert Table
-        </button>
-        {showTablePicker && (
-          <div
-            className="absolute left-0 top-full z-50 mt-1 min-w-[12rem] rounded-md border border-zinc-200 bg-white p-3 shadow-lg"
-            data-testid="table-picker"
+        <div className="flex items-center gap-1">
+          <select
+            className="toolbar-select min-w-[4rem]"
+            value={
+              isFontSizeMixed
+                ? "mixed"
+                : isCustomFontSize
+                  ? "custom"
+                  : FONT_SIZE_OPTIONS.some(
+                        (o) => o.value === currentFontSize && o.value !== "custom",
+                      )
+                    ? currentFontSize
+                    : "default"
+            }
+            onChange={(e) => onFontSizeChange(e.target.value)}
+            title="Size"
           >
-            <div className="mb-2 grid grid-cols-2 gap-2 text-sm">
-              <label className="flex flex-col gap-0.5">
-                <span className="text-zinc-600">Rows</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={tableRows}
-                  onChange={(e) => setTableRows(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
-                  className="rounded border border-zinc-300 px-2 py-1 text-zinc-900"
-                />
-              </label>
-              <label className="flex flex-col gap-0.5">
-                <span className="text-zinc-600">Columns</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={tableCols}
-                  onChange={(e) => setTableCols(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
-                  className="rounded border border-zinc-300 px-2 py-1 text-zinc-900"
-                />
-              </label>
-            </div>
-            <label className="mb-2 flex items-center gap-2 text-sm">
+            <option value="mixed" disabled>
+              —
+            </option>
+            {FONT_SIZE_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          {isCustomFontSize && (
+            <>
               <input
-                type="checkbox"
-                checked={tableIncludeHeaders}
-                onChange={(e) => setTableIncludeHeaders(e.target.checked)}
-                className="rounded border-zinc-300"
+                type="number"
+                min={8}
+                max={96}
+                value={customFontSizePx}
+                onChange={(e) => setCustomFontSizePx(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onCustomFontSizeApply()}
+                onBlur={onCustomFontSizeApply}
+                className="h-8 w-12 rounded-lg border-0 bg-zinc-100/80 px-1.5 text-center text-[12px] text-zinc-700 hover:bg-zinc-100"
+                placeholder="px"
+                aria-label="Custom size"
               />
-              <span className="text-zinc-600">Header row</span>
-            </label>
-            <button
-              className="w-full rounded bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
-              onClick={onInsertTable}
-              data-testid="table-picker-insert"
-            >
-              Insert
-            </button>
+            </>
+          )}
+        </div>
+      </div>
+      <span className="toolbar-divider" />
+
+      {/* Block */}
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn-minimal"
+          onClick={() => run((e) => e.execFormat("blockType", "h1"))}
+          title="Heading 1"
+        >
+          H1
+        </button>
+        <button
+          className="toolbar-btn-minimal"
+          onClick={() => run((e) => e.execFormat("blockType", "h2"))}
+          title="Heading 2"
+        >
+          H2
+        </button>
+      </div>
+      <span className="toolbar-divider" />
+
+      {/* Insert */}
+      <div className="relative" ref={insertMenuRef}>
+        <button
+          className="toolbar-btn-minimal"
+          onClick={() => {
+            setShowInsertMenu((p) => !p);
+            if (showInsertMenu) setShowTablePicker(false);
+          }}
+          title="Insert"
+        >
+          Insert
+        </button>
+        {showInsertMenu && (
+          <div
+            className="toolbar-popover left-0"
+            data-testid="insert-menu"
+            style={{ minWidth: showTablePicker ? "12rem" : "11rem" }}
+          >
+            {showTablePicker ? (
+              <div>
+                <button
+                  className="mb-2 text-[11px] text-zinc-400 hover:text-zinc-600"
+                  onClick={() => setShowTablePicker(false)}
+                >
+                  ← Back
+                </button>
+                <div className="mb-2 grid grid-cols-2 gap-2 text-[12px]">
+                  <label className="flex flex-col gap-0.5">
+                    <span className="text-zinc-500">Rows</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={tableRows}
+                      onChange={(e) =>
+                        setTableRows(Math.max(1, Math.min(20, Number(e.target.value) || 1)))
+                      }
+                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5">
+                    <span className="text-zinc-500">Columns</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={tableCols}
+                      onChange={(e) =>
+                        setTableCols(Math.max(1, Math.min(10, Number(e.target.value) || 1)))
+                      }
+                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
+                    />
+                  </label>
+                </div>
+                <label className="mb-3 flex items-center gap-2 text-[12px]">
+                  <input
+                    type="checkbox"
+                    checked={tableIncludeHeaders}
+                    onChange={(e) => setTableIncludeHeaders(e.target.checked)}
+                    className="rounded border-zinc-300"
+                  />
+                  <span className="text-zinc-500">Header row</span>
+                </label>
+                <button
+                  className="w-full rounded-lg bg-zinc-900 py-2 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800"
+                  onClick={() => {
+                    onInsertTable();
+                    setShowInsertMenu(false);
+                    setShowTablePicker(false);
+                  }}
+                  data-testid="table-picker-insert"
+                >
+                  Insert
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  className="flex w-full items-center rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-zinc-100"
+                  onClick={() => setShowTablePicker(true)}
+                >
+                  Table
+                </button>
+                <button
+                  className="flex w-full items-center rounded-lg px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-zinc-100"
+                  onClick={() => {
+                    setShowInsertMenu(false);
+                    onInsertImage();
+                  }}
+                >
+                  Image
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
-      <button className="toolbar-btn" onClick={onInsertImage}>
-        Insert Image
-      </button>
-      <span className="ml-auto rounded-md bg-zinc-100 px-2 py-1 text-xs text-zinc-600">
-        {mode === "paginated" ? "Pagination mode" : "Continuous mode"} - {TOGGLE_MODE_SHORTCUT}
-      </span>
-      <button className="toolbar-btn" onClick={onToggleMode}>
-        Toggle View
-      </button>
+
+      <div className="ml-auto flex items-center gap-2">
+        {/* View mode */}
+        <div className="toolbar-segmented" role="group" aria-label="View mode">
+          <button
+            className="toolbar-segment"
+            data-active={mode === "continuous"}
+            onClick={() => mode !== "continuous" && onToggleMode()}
+            title={`Continuous ${TOGGLE_MODE_SHORTCUT}`}
+          >
+            Continuous
+          </button>
+          <button
+            className="toolbar-segment"
+            data-active={mode === "paginated"}
+            onClick={() => mode !== "paginated" && onToggleMode()}
+            title={`Page ${TOGGLE_MODE_SHORTCUT}`}
+          >
+            Page
+          </button>
+        </div>
+
+        {/* Dimensions popover */}
+        <div className="relative" ref={sizePopoverRef}>
+          <button
+            className="toolbar-btn-minimal text-zinc-500"
+            onClick={() => setShowSizePopover((p) => !p)}
+            title="Page size"
+            aria-label="Dimensions"
+          >
+            {mode === "paginated"
+              ? `${pageWidthPx} × ${pageHeightPx}`
+              : `${continuousWidthPx}px`}
+          </button>
+          {showSizePopover && (
+            <div className="toolbar-popover" style={{ minWidth: "8.5rem" }}>
+              {mode === "paginated" ? (
+                <div className="space-y-2">
+                  <label className="flex flex-col gap-0.5 text-[12px]">
+                    <span className="text-zinc-500">Width</span>
+                    <input
+                      type="number"
+                      min={200}
+                      max={2000}
+                      value={pageWidthPx}
+                      onChange={(e) =>
+                        onPageWidthChange(Number(e.target.value) || 794)
+                      }
+                      onBlur={(e) =>
+                        onPageWidthChange(Number(e.target.value) || 794)
+                      }
+                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[12px]">
+                    <span className="text-zinc-500">Height</span>
+                    <input
+                      type="number"
+                      min={300}
+                      max={2000}
+                      value={pageHeightPx}
+                      onChange={(e) =>
+                        onPageHeightChange(Number(e.target.value) || 1123)
+                      }
+                      onBlur={(e) =>
+                        onPageHeightChange(Number(e.target.value) || 1123)
+                      }
+                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <label className="flex flex-col gap-0.5 text-[12px]">
+                  <span className="text-zinc-500">Width</span>
+                  <input
+                    type="number"
+                    min={200}
+                    max={2000}
+                    value={continuousWidthPx}
+                    onChange={(e) =>
+                      onContinuousWidthChange(Number(e.target.value) || 896)
+                    }
+                    onBlur={(e) =>
+                      onContinuousWidthChange(Number(e.target.value) || 896)
+                    }
+                    className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
+                  />
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

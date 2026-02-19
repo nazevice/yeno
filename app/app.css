@@ -20,6 +20,47 @@ body {
   @apply rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100;
 }
 
+/* Toolbar – Apple/Nothing-inspired minimal design */
+.toolbar {
+  @apply flex flex-wrap items-center gap-1 rounded-2xl bg-white/90 px-2.5 py-1.5 shadow-sm ring-1 ring-zinc-200/60 backdrop-blur-xl;
+}
+
+.toolbar-group {
+  @apply flex items-center gap-0.5;
+}
+
+.toolbar-divider {
+  @apply mx-1 h-4 w-px bg-zinc-200/80;
+}
+
+.toolbar-btn-minimal {
+  @apply flex h-8 min-w-8 items-center justify-center rounded-lg px-2.5 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900;
+}
+
+.toolbar-btn-minimal[data-active="true"] {
+  @apply bg-zinc-200/80 text-zinc-900;
+}
+
+.toolbar-select {
+  @apply h-8 cursor-pointer rounded-lg border-0 bg-transparent px-2.5 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-100/80 hover:text-zinc-900;
+}
+
+.toolbar-segmented {
+  @apply inline-flex rounded-lg bg-zinc-100/80 p-0.5;
+}
+
+.toolbar-segment {
+  @apply rounded-md px-2.5 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:text-zinc-900;
+}
+
+.toolbar-segment[data-active="true"] {
+  @apply bg-white text-zinc-900 shadow-sm;
+}
+
+.toolbar-popover {
+  @apply absolute right-0 top-full z-50 mt-1.5 min-w-[10rem] rounded-xl border border-zinc-200/80 bg-white/95 p-3 shadow-xl backdrop-blur-xl;
+}
+
 .editor-content {
   @apply leading-7 text-[16px];
 }
