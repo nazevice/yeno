@@ -22,7 +22,10 @@ export interface EditorApi {
   getHTML: () => string;
   getContent: () => { text: string; html: string };
   setContent: (text: string, ranges?: MetadataRange[], assets?: AssetRef[]) => void;
-  execFormat: (cmd: "bold" | "italic" | "font" | "fontSize" | "blockType", value?: string) => void;
+  execFormat: (
+    cmd: "bold" | "italic" | "font" | "fontSize" | "blockType" | "textAlign",
+    value?: string,
+  ) => void;
   insertTable: (rows: number, cols: number, includeHeaders: boolean) => void;
   insertImage: (name: string, alt: string, dataUrl?: string) => void;
   focus: () => void;
@@ -167,6 +170,15 @@ export function EditorProvider({
             }
             block = block.parentNode!;
           }
+        } else if (cmd === "textAlign" && value) {
+          const execMap = {
+            left: "justifyLeft",
+            center: "justifyCenter",
+            right: "justifyRight",
+            justify: "justifyFull",
+          } as const;
+          const execCmd = execMap[value as keyof typeof execMap];
+          if (execCmd) document.execCommand(execCmd, false);
         }
         updateListenersRef.current.forEach((fn) => fn());
       },

@@ -47,6 +47,38 @@ function getSelectionFontInfo(): { font: string; fontSize: string } | null {
   return { font: DEFAULT_FONT, fontSize: DEFAULT_FONT_SIZE };
 }
 
+const TEXT_ALIGN_OPTIONS = [
+  { value: "left", label: "Left", title: "Align left" },
+  { value: "center", label: "Center", title: "Align center" },
+  { value: "right", label: "Right", title: "Align right" },
+  { value: "justify", label: "Block", title: "Justify (block)" },
+] as const;
+
+function getSelectionAlignInfo(): (typeof TEXT_ALIGN_OPTIONS)[number]["value"] | "default" {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return "default";
+  const range = sel.getRangeAt(0);
+  let node: Node | null = range.commonAncestorContainer;
+  if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+  if (!node || !(node instanceof HTMLElement)) return "default";
+  let el: HTMLElement | null = node as HTMLElement;
+  const root = document.querySelector("[contenteditable=\"true\"]");
+  while (el && el !== root) {
+    const tag = el.tagName;
+    if (["P", "H1", "H2", "H3", "DIV", "TD", "TH"].includes(tag)) {
+      const align = el.style?.textAlign || getComputedStyle(el).textAlign;
+      if (align && align !== "start") {
+        const v = align.toLowerCase();
+        if (v === "left" || v === "center" || v === "right" || v === "justify")
+          return v as (typeof TEXT_ALIGN_OPTIONS)[number]["value"];
+      }
+      return "default";
+    }
+    el = el.parentElement;
+  }
+  return "default";
+}
+
 export function Toolbar({
   editor,
   mode,
@@ -61,6 +93,9 @@ export function Toolbar({
 }: ToolbarProps) {
   const [currentFont, setCurrentFont] = useState(DEFAULT_FONT);
   const [currentFontSize, setCurrentFontSize] = useState(DEFAULT_FONT_SIZE);
+  const [currentAlign, setCurrentAlign] = useState<
+    (typeof TEXT_ALIGN_OPTIONS)[number]["value"] | "default"
+  >("default");
   const [isFontSizeMixed, setIsFontSizeMixed] = useState(false);
   const [isCustomFontSize, setIsCustomFontSize] = useState(false);
   const [customFontSizePx, setCustomFontSizePx] = useState("");
@@ -89,6 +124,8 @@ export function Toolbar({
           if (!Number.isNaN(px)) setCustomFontSizePx(String(px));
         }
       }
+      const align = getSelectionAlignInfo();
+      setCurrentAlign((prev) => (align === prev ? prev : align));
     };
     const unregister = editor.registerUpdateListener(updateFromSelection);
     document.addEventListener("selectionchange", updateFromSelection);
@@ -267,6 +304,25 @@ export function Toolbar({
         >
           H2
         </button>
+      </div>
+      <span className="toolbar-divider" />
+
+      {/* Alignment */}
+      <div className="toolbar-segmented" role="group" aria-label="Text alignment">
+        {TEXT_ALIGN_OPTIONS.map(({ value, label, title }) => (
+          <button
+            key={value}
+            className="toolbar-segment"
+            onClick={() => run((e) => e.execFormat("textAlign", value))}
+            title={title}
+            data-active={
+              currentAlign === value || (value === "left" && currentAlign === "default")
+            }
+            data-testid={`align-${value}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       <span className="toolbar-divider" />
 
