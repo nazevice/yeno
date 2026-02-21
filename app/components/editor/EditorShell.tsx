@@ -122,18 +122,33 @@ export function EditorShell() {
       setCurrentPage((prev) => (prev === nextPage ? prev : nextPage));
     };
 
+    const THROTTLE_MS = 100;
+    let throttleId: ReturnType<typeof setTimeout> | null = null;
+    let lastRun = 0;
+    const throttledUpdate = () => {
+      const now = Date.now();
+      if (now - lastRun >= THROTTLE_MS) {
+        lastRun = now;
+        updatePaginationStats();
+      } else if (!throttleId) {
+        throttleId = setTimeout(() => {
+          throttleId = null;
+          lastRun = Date.now();
+          updatePaginationStats();
+        }, THROTTLE_MS - (now - lastRun));
+      }
+    };
+
     updatePaginationStats();
     const container = paginatedContainerRef.current;
-    const onScroll = () => updatePaginationStats();
-    const onSelectionChange = () => updatePaginationStats();
-    const intervalId = window.setInterval(updatePaginationStats, 250);
-    container?.addEventListener("scroll", onScroll);
-    document.addEventListener("selectionchange", onSelectionChange);
-
+    container?.addEventListener("scroll", throttledUpdate);
+    document.addEventListener("selectionchange", throttledUpdate);
+    const intervalId = window.setInterval(updatePaginationStats, 150);
     return () => {
-      container?.removeEventListener("scroll", onScroll);
-      document.removeEventListener("selectionchange", onSelectionChange);
+      container?.removeEventListener("scroll", throttledUpdate);
+      document.removeEventListener("selectionchange", throttledUpdate);
       window.clearInterval(intervalId);
+      if (throttleId) clearTimeout(throttleId);
     };
   }, [mode, pageStridePx]);
 
@@ -311,8 +326,9 @@ export function EditorShell() {
         containerRef={paginatedContainerRef}
         currentPage={currentPage}
         pageCount={pageCount}
-        pageStridePx={pageStridePx}
         pageWidthPx={pageWidthPx}
+        pageHeightPx={pageHeightPx}
+        pageGapPx={PAGE_GAP_PX}
       >
         <ContentEditableRoot
           className="editor-content paged rounded-lg p-8 outline-none"

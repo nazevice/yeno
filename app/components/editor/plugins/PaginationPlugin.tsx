@@ -9,7 +9,8 @@ interface PaginationPluginProps {
 }
 
 const ESTIMATED_LINE_HEIGHT_PX = 28;
-const SAFETY_BUFFER_PX = 100;
+const ESTIMATED_CHARS_PER_LINE = 85;
+const SAFETY_BUFFER_PX = 16;
 
 function getBlockHeightPx(block: HTMLElement): number {
   const rect = block.getBoundingClientRect();
@@ -18,6 +19,17 @@ function getBlockHeightPx(block: HTMLElement): number {
   const marginTop = parseFloat(style.marginTop) || 0;
   const marginBottom = parseFloat(style.marginBottom) || 0;
   return rect.height + marginTop + marginBottom;
+}
+
+/** Estimate block height when not yet laid out. Accounts for wrapped long lines. */
+function estimateBlockHeight(block: HTMLElement): number {
+  const text = block.innerText || block.textContent || "";
+  const explicitLines = (text.match(/\n/g)?.length ?? 0) + 1;
+  if (text.length > 0 && explicitLines === 1) {
+    const wrappedLines = Math.max(1, Math.ceil(text.length / ESTIMATED_CHARS_PER_LINE));
+    return wrappedLines * ESTIMATED_LINE_HEIGHT_PX;
+  }
+  return Math.max(1, explicitLines) * ESTIMATED_LINE_HEIGHT_PX;
 }
 
 function computePageBreaksBefore(
@@ -29,9 +41,7 @@ function computePageBreaksBefore(
   const measured = blocks.map((block) => {
     const h = getBlockHeightPx(block);
     if (h > 0) return { block, height: h };
-    const text = block.innerText || block.textContent || "";
-    const lines = Math.max(1, (text.match(/\n/g)?.length ?? 0) + 1);
-    return { block, height: lines * ESTIMATED_LINE_HEIGHT_PX };
+    return { block, height: estimateBlockHeight(block) };
   });
 
   const needsBreakBefore = new Set<HTMLElement>();
@@ -56,8 +66,9 @@ function computePageBreaksBefore(
 function runReflow(root: HTMLElement, pageHeightPx: number): boolean {
   const style = getComputedStyle(root);
   const paddingTop = parseFloat(style.paddingTop) || 0;
-  const paddingBottom = parseFloat(style.paddingBottom) || 0;
-  const firstPageMaxHeight = pageHeightPx - paddingTop - paddingBottom - SAFETY_BUFFER_PX;
+  /* First page: content starts after paddingTop, must end before page boundary at pageHeightPx.
+   * Subsequent pages: full pageHeightPx. paddingBottom is at doc end, not per-page. */
+  const firstPageMaxHeight = pageHeightPx - paddingTop - SAFETY_BUFFER_PX;
   const subsequentPageMaxHeight = pageHeightPx - SAFETY_BUFFER_PX;
 
   const blocks = getPaginateableBlocks(root);
