@@ -1,9 +1,8 @@
 import JSZip from "jszip";
 import { invoke } from "@tauri-apps/api/core";
 
-import { DEFAULT_FONT, DEFAULT_FONT_SIZE, normalizeFontSizeToPx } from "./fonts";
-import type { DocumentPayload, PerfSnapshot } from "./schema";
-import type { EditorApi } from "~/components/editor/core/EditorContext";
+import type { DocumentPayload, DocumentTree, PerfSnapshot } from "./schema";
+import type { EditorEngine } from "./editorEngine";
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -18,72 +17,28 @@ function sha256Hex(input: string): Promise<string> {
   });
 }
 
-function extractRangesFromHtml(html: string): DocumentPayload["metadata"]["ranges"] {
-  const ranges: DocumentPayload["metadata"]["ranges"] = [];
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  let cursor = 0;
-
-  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-  let node: Node | null = walker.currentNode;
-  while (node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      cursor += node.textContent?.length ?? 0;
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const element = node as HTMLElement;
-      const textLen = element.innerText.length;
-      if (element.tagName === "STRONG" && textLen > 0) {
-        ranges.push({ start: Math.max(0, cursor), end: cursor + textLen, attrs: { b: true } });
-      }
-      if (element.tagName === "EM" && textLen > 0) {
-        ranges.push({ start: Math.max(0, cursor), end: cursor + textLen, attrs: { i: true } });
-      }
-      if (["H1", "H2", "H3"].includes(element.tagName) && textLen > 0) {
-        ranges.push({
-          start: Math.max(0, cursor),
-          end: cursor + textLen,
-          type: "h",
-          level: Number.parseInt(element.tagName[1] ?? "1", 10),
-        });
-      }
-      if (element.tagName === "SPAN" && textLen > 0) {
-        const fontFamily = element.style?.fontFamily?.trim();
-        const rawFontSize = element.style?.fontSize?.trim();
-        const fontSize = rawFontSize ? normalizeFontSizeToPx(rawFontSize) : null;
-        const hasFont = fontFamily && fontFamily !== DEFAULT_FONT;
-        const hasFontSize = fontSize && fontSize !== DEFAULT_FONT_SIZE;
-        if (hasFont || hasFontSize) {
-          const attrs: Record<string, unknown> = {};
-          if (hasFont) attrs.font = fontFamily;
-          if (hasFontSize) attrs.fontSize = fontSize;
-          ranges.push({
-            start: Math.max(0, cursor),
-            end: cursor + textLen,
-            attrs,
-          });
-        }
+function extractAssetsFromTree(tree: DocumentTree): DocumentPayload["assets"] {
+  const assets: DocumentPayload["assets"] = [];
+  for (const section of tree.root.children) {
+    for (const block of section.children) {
+      if (block.type === "image") {
+        assets.push(block.assetRef);
       }
     }
-    node = walker.nextNode();
   }
-
-  ranges.sort((a, b) => a.start - b.start);
-  return ranges;
+  return assets;
 }
 
-export function buildPayload(editor: EditorApi): DocumentPayload {
-  const text = editor.getTextContent();
-  const html = editor.getHTML();
-
+export function buildPayload(engine: EditorEngine): DocumentPayload {
+  const content = engine.textBuffer.toContent();
+  const tree = JSON.parse(JSON.stringify(engine.tree)) as DocumentTree;
   return {
-    baseText: text,
-    chunks: [{ type: "original", offset: 0, len: text.length, source: "baseText" }],
-    metadata: {
-      ranges: extractRangesFromHtml(html),
-      custom: { engine: "yeno" },
-    },
+    baseText: content.baseText,
+    chunks: content.chunks,
+    metadata: { custom: { engine: "yeno" } },
     versions: [],
-    assets: [],
+    assets: extractAssetsFromTree(engine.tree),
+    documentTree: tree,
   };
 }
 
@@ -93,23 +48,29 @@ export async function saveDocument(path: string, payload: DocumentPayload): Prom
   }
 
   const zip = new JSZip();
-  const content = new TextEncoder().encode(JSON.stringify(payload));
+  const content = new TextEncoder().encode(JSON.stringify({
+    baseText: payload.baseText,
+    chunks: payload.chunks,
+  }));
   const metadata = JSON.stringify(payload.metadata, null, 2);
+  const documentTree = JSON.stringify(payload.documentTree, null, 2);
   zip.file("content.cbor", content);
   zip.file("metadata.json", metadata);
+  zip.file("documentTree.json", documentTree);
   zip.file("assets/rels.json", "{}");
   const checksum = await sha256Hex(JSON.stringify(payload));
   zip.file(
     "manifest.json",
     JSON.stringify(
       {
-        schemaVersion: "1.0",
+        schemaVersion: "2.0",
         contentType: "text/grokedoc",
         lastModified: new Date().toISOString(),
         checksum,
         files: {
           content: "content.cbor",
           metadata: "metadata.json",
+          documentTree: "documentTree.json",
           versions: [],
           assets: [],
         },

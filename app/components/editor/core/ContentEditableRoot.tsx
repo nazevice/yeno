@@ -1,11 +1,16 @@
-import { useCallback, useRef, useLayoutEffect } from "react";
+/**
+ * ContentEditable root – model-first editor.
+ * Intercepts input, applies to engine, relies on context to re-render.
+ */
+
+import { useCallback, useRef } from "react";
 import { useEditorContext } from "./EditorContext";
-import { createParagraphElement } from "./blockUtils";
+import { getSelectionOffsets } from "./domSelection";
+import { resolveBufferOffset } from "~/lib/doc/treeUtils";
 
 interface ContentEditableRootProps {
   className?: string;
   style?: React.CSSProperties;
-  placeholder?: React.ReactNode;
   "data-testid"?: string;
   onPaste?: (event: React.ClipboardEvent) => void;
 }
@@ -13,17 +18,85 @@ interface ContentEditableRootProps {
 export function ContentEditableRoot({
   className,
   style,
-  placeholder,
   "data-testid": dataTestId,
   onPaste,
 }: ContentEditableRootProps) {
-  const { editor, rootRef } = useEditorContext();
+  const { editor, engine, rootRef } = useEditorContext();
   const isComposingRef = useRef(false);
 
-  const handleBeforeInput = useCallback(() => {
-    if (isComposingRef.current) return;
-    editor?.pushHistory();
-  }, [editor]);
+  const handleBeforeInput = useCallback(
+    (e: React.FormEvent<HTMLDivElement>) => {
+      if (isComposingRef.current) return;
+      const root = rootRef.current;
+      if (!root) return;
+
+      const sel = getSelectionOffsets(root);
+      if (!sel) return;
+
+      const { anchor, focus } = sel;
+      const isCollapsed = anchor === focus;
+
+      if (e.nativeEvent instanceof InputEvent) {
+        const inputType = e.nativeEvent.inputType;
+        const data = e.nativeEvent.data ?? "";
+
+        if (inputType === "insertText" || inputType === "insertCompositionText") {
+          e.preventDefault();
+          const resolved = resolveBufferOffset(engine.tree, anchor);
+          if (!resolved) return;
+          engine.pushHistory();
+          const ok = engine.apply({
+            type: "insert",
+            nodeId: resolved.nodeId,
+            offset: resolved.nodeOffset,
+            text: data,
+          });
+          if (ok) {
+            engine.setSelectionFromOffsets(anchor + data.length, focus + data.length);
+          }
+          return;
+        }
+
+        if (inputType === "deleteContentBackward" && isCollapsed) {
+          e.preventDefault();
+          if (anchor <= 0) return;
+          const resolved = resolveBufferOffset(engine.tree, anchor - 1);
+          if (!resolved) return;
+          engine.pushHistory();
+          const ok = engine.apply({
+            type: "delete",
+            nodeId: resolved.nodeId,
+            offset: resolved.nodeOffset,
+            len: 1,
+          });
+          if (ok) {
+            engine.setSelectionFromOffsets(anchor - 1, anchor - 1);
+          }
+          return;
+        }
+
+        if (inputType === "deleteContentForward" && isCollapsed) {
+          e.preventDefault();
+          const textLen = engine.textBuffer.getText().length;
+          if (anchor >= textLen) return;
+          const resolved = resolveBufferOffset(engine.tree, anchor);
+          if (!resolved) return;
+          engine.pushHistory();
+          const ok = engine.apply({
+            type: "delete",
+            nodeId: resolved.nodeId,
+            offset: resolved.nodeOffset,
+            len: 1,
+          });
+          if (ok) {
+            engine.setSelectionFromOffsets(anchor, anchor);
+          }
+          return;
+        }
+      }
+    },
+    [engine, rootRef],
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -31,25 +104,15 @@ export function ContentEditableRoot({
         if (e.key === "z") {
           e.preventDefault();
           if (e.shiftKey) {
-            editor?.redo();
+            editor.redo();
           } else {
-            editor?.undo();
+            editor.undo();
           }
           return;
         }
         if (e.key === "y") {
           e.preventDefault();
-          editor?.redo();
-          return;
-        }
-        if (e.key === "b") {
-          e.preventDefault();
-          editor?.execFormat("bold");
-          return;
-        }
-        if (e.key === "i") {
-          e.preventDefault();
-          editor?.execFormat("italic");
+          editor.redo();
           return;
         }
       }
@@ -62,17 +125,6 @@ export function ContentEditableRoot({
   }, []);
   const handleCompositionEnd = useCallback(() => {
     isComposingRef.current = false;
-  }, []);
-
-  // Ensure empty editor has a paragraph
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    if (root.childNodes.length === 0) {
-      const p = createParagraphElement();
-      p.innerHTML = "<br>";
-      root.appendChild(p);
-    }
   }, []);
 
   return (

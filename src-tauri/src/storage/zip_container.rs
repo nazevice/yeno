@@ -73,6 +73,8 @@ pub struct DocumentPayload {
     pub versions: Vec<Value>,
     #[serde(default)]
     pub assets: Vec<AssetRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_tree: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +82,9 @@ pub struct DocumentPayload {
 pub struct ManifestFiles {
     pub content: String,
     pub metadata: String,
+    #[serde(default)]
+    pub document_tree: Option<String>,
+    #[serde(default)]
     pub versions: Vec<String>,
     pub assets: Vec<String>,
 }
@@ -135,6 +140,12 @@ pub fn save_document(path: &Path, payload: &DocumentPayload) -> Result<(), Stora
     let metadata_json = serde_json::to_vec(&payload.metadata)?;
     let (metadata_path, metadata_bytes) = maybe_compress_metadata(&metadata_json);
 
+    let document_tree_bytes: Option<Vec<u8>> = payload
+        .document_tree
+        .as_ref()
+        .map(serde_json::to_vec)
+        .transpose()?;
+
     let version_paths: Vec<String> = payload
         .versions
         .iter()
@@ -151,6 +162,9 @@ pub fn save_document(path: &Path, payload: &DocumentPayload) -> Result<(), Stora
     let mut hash_input = Vec::new();
     hash_input.extend_from_slice(&content_bytes);
     hash_input.extend_from_slice(&metadata_bytes);
+    if let Some(ref dt) = document_tree_bytes {
+        hash_input.extend_from_slice(dt);
+    }
     for version in &payload.versions {
         hash_input.extend_from_slice(serde_json::to_string(version)?.as_bytes());
     }
@@ -159,11 +173,22 @@ pub fn save_document(path: &Path, payload: &DocumentPayload) -> Result<(), Stora
     }
     let checksum = sha256_hex(&hash_input);
 
+    let schema_version = if payload.document_tree.is_some() {
+        "2.0"
+    } else {
+        "1.0"
+    };
+
     zip.start_file("content.cbor", options)?;
     zip.write_all(&content_bytes)?;
 
     zip.start_file(&metadata_path, options)?;
     zip.write_all(&metadata_bytes)?;
+
+    if let Some(ref dt) = document_tree_bytes {
+        zip.start_file("documentTree.json", options)?;
+        zip.write_all(dt)?;
+    }
 
     for (idx, version) in payload.versions.iter().enumerate() {
         zip.start_file(&version_paths[idx], options)?;
@@ -199,13 +224,14 @@ pub fn save_document(path: &Path, payload: &DocumentPayload) -> Result<(), Stora
     }
 
     let manifest = Manifest {
-        schema_version: "1.0".to_string(),
+        schema_version: schema_version.to_string(),
         content_type: "text/grokedoc".to_string(),
         last_modified: Utc::now().to_rfc3339(),
         checksum: checksum.clone(),
         files: ManifestFiles {
             content: "content.cbor".to_string(),
             metadata: metadata_path.clone(),
+            document_tree: document_tree_bytes.map(|_| "documentTree.json".to_string()),
             versions: version_paths.clone(),
             assets: asset_paths.clone(),
         },
@@ -224,6 +250,11 @@ pub fn save_document(path: &Path, payload: &DocumentPayload) -> Result<(), Stora
 
         final_zip.start_file(&metadata_path, options)?;
         final_zip.write_all(&metadata_bytes)?;
+
+        if let Some(ref dt) = document_tree_bytes {
+            final_zip.start_file("documentTree.json", options)?;
+            final_zip.write_all(dt)?;
+        }
 
         for (idx, version) in payload.versions.iter().enumerate() {
             final_zip.start_file(&version_paths[idx], options)?;
@@ -287,6 +318,17 @@ pub fn load_document(path: &Path) -> Result<DocumentPayload, StorageError> {
         serde_json::from_slice(&metadata_json_bytes)?
     };
 
+    let document_tree = manifest
+        .files
+        .document_tree
+        .as_ref()
+        .and_then(|path| {
+            let mut file = archive.by_name(path).ok()?;
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).ok()?;
+            serde_json::from_slice::<Value>(&bytes).ok()
+        });
+
     let mut versions = Vec::new();
     for version_path in &manifest.files.versions {
         if let Ok(mut version_file) = archive.by_name(version_path) {
@@ -344,6 +386,9 @@ pub fn load_document(path: &Path) -> Result<DocumentPayload, StorageError> {
         hash_input.extend_from_slice(serde_json::to_string(chunk)?.as_bytes());
     }
     hash_input.extend_from_slice(serde_json::to_string(&metadata)?.as_bytes());
+    if let Some(ref dt) = document_tree {
+        hash_input.extend_from_slice(serde_json::to_string(dt)?.as_bytes());
+    }
     for version in &versions {
         hash_input.extend_from_slice(serde_json::to_string(version)?.as_bytes());
     }
@@ -364,6 +409,7 @@ pub fn load_document(path: &Path) -> Result<DocumentPayload, StorageError> {
         metadata,
         versions,
         assets,
+        document_tree,
     })
 }
 
