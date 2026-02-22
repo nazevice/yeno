@@ -8,23 +8,16 @@ import {
   FONT_SIZE_OPTIONS,
   parseFontSizePx,
 } from "~/lib/doc/fonts";
-import { TOGGLE_MODE_SHORTCUT } from "~/lib/doc/hotkeys";
 import type { EditorApi } from "./core/EditorContext";
 import { getSelectionOffsets } from "./core/domSelection";
 
-type EditorMode = "continuous" | "paginated";
-
 interface ToolbarProps {
   editor: EditorApi | null;
-  mode: EditorMode;
-  onToggleMode: () => void;
   onInsertImage: () => void;
   pageWidthPx: number;
   pageHeightPx: number;
   onPageWidthChange: (px: number) => void;
   onPageHeightChange: (px: number) => void;
-  continuousWidthPx: number;
-  onContinuousWidthChange: (px: number) => void;
 }
 
 function getSelectionFontInfo(): { font: string; fontSize: string } | null {
@@ -83,15 +76,11 @@ function getSelectionAlignInfo(): (typeof TEXT_ALIGN_OPTIONS)[number]["value"] |
 
 export function Toolbar({
   editor,
-  mode,
-  onToggleMode,
   onInsertImage,
   pageWidthPx,
   pageHeightPx,
   onPageWidthChange,
   onPageHeightChange,
-  continuousWidthPx,
-  onContinuousWidthChange,
 }: ToolbarProps) {
   const [currentFont, setCurrentFont] = useState(DEFAULT_FONT);
   const [currentFontSize, setCurrentFontSize] = useState(DEFAULT_FONT_SIZE);
@@ -473,26 +462,6 @@ export function Toolbar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {/* View mode */}
-        <div className="toolbar-segmented" role="group" aria-label="View mode">
-          <button
-            className="toolbar-segment"
-            data-active={mode === "continuous"}
-            onClick={() => mode !== "continuous" && onToggleMode()}
-            title={`Continuous ${TOGGLE_MODE_SHORTCUT}`}
-          >
-            Continuous
-          </button>
-          <button
-            className="toolbar-segment"
-            data-active={mode === "paginated"}
-            onClick={() => mode !== "paginated" && onToggleMode()}
-            title={`Page ${TOGGLE_MODE_SHORTCUT}`}
-          >
-            Page
-          </button>
-        </div>
-
         {/* Dimensions popover */}
         <div className="relative" ref={sizePopoverRef}>
           <button
@@ -501,65 +470,44 @@ export function Toolbar({
             title="Page size"
             aria-label="Dimensions"
           >
-            {mode === "paginated"
-              ? `${pageWidthPx} × ${pageHeightPx}`
-              : `${continuousWidthPx}px`}
+            {`${pageWidthPx} × ${pageHeightPx}`}
           </button>
           {showSizePopover && (
             <div className="toolbar-popover" style={{ minWidth: "8.5rem" }}>
-              {mode === "paginated" ? (
-                <div className="space-y-2">
-                  <label className="flex flex-col gap-0.5 text-[12px]">
-                    <span className="text-zinc-500">Width</span>
-                    <input
-                      type="number"
-                      min={200}
-                      max={2000}
-                      value={pageWidthPx}
-                      onChange={(e) =>
-                        onPageWidthChange(Number(e.target.value) || 794)
-                      }
-                      onBlur={(e) =>
-                        onPageWidthChange(Number(e.target.value) || 794)
-                      }
-                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-0.5 text-[12px]">
-                    <span className="text-zinc-500">Height</span>
-                    <input
-                      type="number"
-                      min={300}
-                      max={2000}
-                      value={pageHeightPx}
-                      onChange={(e) =>
-                        onPageHeightChange(Number(e.target.value) || 1123)
-                      }
-                      onBlur={(e) =>
-                        onPageHeightChange(Number(e.target.value) || 1123)
-                      }
-                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
-                    />
-                  </label>
-                </div>
-              ) : (
+              <div className="space-y-2">
                 <label className="flex flex-col gap-0.5 text-[12px]">
                   <span className="text-zinc-500">Width</span>
                   <input
                     type="number"
                     min={200}
                     max={2000}
-                    value={continuousWidthPx}
+                    value={pageWidthPx}
                     onChange={(e) =>
-                      onContinuousWidthChange(Number(e.target.value) || 896)
+                      onPageWidthChange(Number(e.target.value) || 794)
                     }
                     onBlur={(e) =>
-                      onContinuousWidthChange(Number(e.target.value) || 896)
+                      onPageWidthChange(Number(e.target.value) || 794)
                     }
                     className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
                   />
                 </label>
-              )}
+                <label className="flex flex-col gap-0.5 text-[12px]">
+                  <span className="text-zinc-500">Height</span>
+                  <input
+                    type="number"
+                    min={300}
+                    max={2000}
+                    value={pageHeightPx}
+                    onChange={(e) =>
+                      onPageHeightChange(Number(e.target.value) || 1123)
+                    }
+                    onBlur={(e) =>
+                      onPageHeightChange(Number(e.target.value) || 1123)
+                    }
+                    className="rounded-lg border border-zinc-200 px-2 py-1.5 text-zinc-900"
+                  />
+                </label>
+              </div>
             </div>
           )}
         </div>

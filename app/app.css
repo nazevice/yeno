@@ -143,6 +143,7 @@ body {
   box-shadow: 0 0 0 1px rgba(39, 39, 42, 0.08);
   line-height: 1.75;
   isolation: isolate;
+  white-space: pre-wrap;
 }
 
 /* Page boundaries are rendered by PageBreakNode elements. No overlay gradient -

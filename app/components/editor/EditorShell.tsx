@@ -24,18 +24,13 @@ function assetToDataUrl(asset: AssetRef | null): string | null {
 
 const DEFAULT_PAGE_WIDTH = 794;
 const DEFAULT_PAGE_HEIGHT = 1123;
-const DEFAULT_CONTINUOUS_WIDTH = 896;
 const PAGE_GAP_PX = 48;
-
-type EditorMode = "continuous" | "paginated";
 
 export function EditorShell() {
   const serviceRef = useRef<EditorService | null>(null);
   const [assets, setAssets] = useState<AssetRef[]>([]);
-  const [mode, setMode] = useState<EditorMode>("paginated");
   const [pageWidthPx, setPageWidthPx] = useState(DEFAULT_PAGE_WIDTH);
   const [pageHeightPx, setPageHeightPx] = useState(DEFAULT_PAGE_HEIGHT);
-  const [continuousWidthPx, setContinuousWidthPx] = useState(DEFAULT_CONTINUOUS_WIDTH);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const paginatedContainerRef = useRef<HTMLDivElement | null>(null);
@@ -52,10 +47,6 @@ export function EditorShell() {
     const asset = assets.find((a) => a.name === name);
     return assetToDataUrl(asset ?? null);
   }, [assets]);
-
-  const onToggleMode = useCallback(() => {
-    setMode((prev) => (prev === "continuous" ? "paginated" : "continuous"));
-  }, []);
 
   const onInsertImage = useCallback(() => {
     fileInputRef.current?.click();
@@ -112,8 +103,6 @@ export function EditorShell() {
   }, []);
 
   useEffect(() => {
-    if (mode !== "paginated") return;
-
     const updatePaginationStats = () => {
       const container = paginatedContainerRef.current;
       const editable = document.querySelector<HTMLElement>(".editor-content.paged");
@@ -168,7 +157,7 @@ export function EditorShell() {
       window.clearInterval(intervalId);
       if (throttleId) clearTimeout(throttleId);
     };
-  }, [mode, pageHeightPx]);
+  }, [pageHeightPx]);
 
   const editor = {
     getRootElement: () => rootRef.current,
@@ -279,10 +268,6 @@ export function EditorShell() {
     () => ({ minHeight: pageHeightPx - 96 }),
     [pageHeightPx],
   );
-  const contentEditableStyleContinuous = useMemo(
-    () => ({}),
-    [],
-  );
 
   useEffect(() => {
     (window as unknown as { __editor?: typeof editor }).__editor = editor;
@@ -296,55 +281,35 @@ export function EditorShell() {
       <main className="mx-auto flex h-screen max-w-7xl flex-col gap-3 p-4 text-zinc-900">
         <Toolbar
           editor={editor}
-          mode={mode}
-          onToggleMode={onToggleMode}
           onInsertImage={onInsertImage}
           pageWidthPx={pageWidthPx}
           pageHeightPx={pageHeightPx}
           onPageWidthChange={setPageWidthPx}
           onPageHeightChange={setPageHeightPx}
-          continuousWidthPx={continuousWidthPx}
-          onContinuousWidthChange={setContinuousWidthPx}
         />
         
         <div className="flex-1 overflow-hidden">
-          {mode === "paginated" ? (
+          <div
+            ref={paginatedContainerRef}
+            className="h-full overflow-auto bg-zinc-100"
+          >
             <div
-              ref={paginatedContainerRef}
-              className="h-full overflow-auto bg-zinc-100"
+              className="mx-auto bg-white shadow-lg"
+              style={{ width: pageWidthPx, minHeight: pageHeightPx }}
             >
-              <div
-                className="mx-auto bg-white shadow-lg"
-                style={{ width: pageWidthPx, minHeight: pageHeightPx }}
-              >
-                <ContentEditableRoot
-                  className="editor-content p-12 outline-none"
-                  style={contentEditableStylePaginated}
-                  getAssetDataUrl={getAssetDataUrl}
-                  data-testid="editor-content"
-                />
-              </div>
+              <ContentEditableRoot
+                className="editor-content paged p-12 outline-none"
+                style={contentEditableStylePaginated}
+                getAssetDataUrl={getAssetDataUrl}
+                data-testid="editor-content"
+              />
             </div>
-          ) : (
-            <div className="h-full overflow-auto bg-zinc-100">
-              <div
-                className="mx-auto bg-white shadow-lg"
-                style={{ width: continuousWidthPx }}
-              >
-                <ContentEditableRoot
-                  className="editor-content p-12 outline-none"
-                  style={contentEditableStyleContinuous}
-                  getAssetDataUrl={getAssetDataUrl}
-                  data-testid="editor-content"
-                />
-              </div>
-            </div>
-          )}
+          </div>
         </div>
 
         <div className="flex items-center justify-between text-xs text-zinc-500">
           <span>
-            {mode === "paginated" && `Page ${currentPage} of ${pageCount}`}
+            {`Page ${currentPage} of ${pageCount}`}
           </span>
           <span>
             {editor.getTextContent().length} characters

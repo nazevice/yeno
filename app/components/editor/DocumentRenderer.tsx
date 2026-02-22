@@ -22,22 +22,25 @@ export function renderDocument(
   const buffer = doc.getBuffer();
   const docTextLen = doc.getText().length;
   
+  console.log('renderDocument', { docTextLen, bufferText: doc.getText() });
+  
   for (const section of doc.sections) {
     for (const block of section.children) {
+      if (isParagraph(block)) {
+        console.log('  paragraph block', { 
+          range: `[${block.textRange.start}, ${block.textRange.end}]`,
+          text: buffer.getRange(block.textRange.start, block.textRange.end)
+        });
+      }
       const el = renderBlock(block, doc, buffer, getAssetDataUrl);
       if (el) {
         root.appendChild(el);
-        if (block.type === 'paragraph') {
-          const tr = (block as { textRange?: { start: number; end: number } }).textRange;
-          const text = tr ? buffer.getRange(tr.start, tr.end) : '';
-          _log('DocumentRenderer','paragraph appended',{docTextLen,rangeStart:tr?.start,rangeEnd:tr?.end,textLen:text.length,pTextLen:(el as HTMLElement).innerText?.length});
-        }
       }
     }
   }
   
   const rootTextLen = root.innerText?.length ?? 0;
-  _log('DocumentRenderer','after loop',{docTextLen,rootTextLen,rootChildCount:root.childNodes.length});
+  console.log('renderDocument done', { docTextLen, rootTextLen, childCount: root.childNodes.length });
   
   if (root.childNodes.length === 0) {
     const p = document.createElement("p");

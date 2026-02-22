@@ -203,8 +203,29 @@ export class Document {
     const blockRange = block.textRange;
     const bufPos = blockRange.start + offset;
     
+    console.log('Document.insertText', { 
+      text: JSON.stringify(text), 
+      offset, 
+      blockRange: `[${blockRange.start}, ${blockRange.end}]`, 
+      bufPos,
+      bufferBefore: JSON.stringify(this.state.buffer.getText())
+    });
+    
     this.state.buffer.insert(bufPos, text);
+    
+    console.log('Document.insertText AFTER buffer.insert', { 
+      bufferAfter: JSON.stringify(this.state.buffer.getText())
+    });
+    
     this.shiftRangesAfter(bufPos, text.length, blockId);
+    
+    // Verify the block was updated
+    const updatedBlock = this.getBlock(blockId);
+    console.log('Document.insertText AFTER shiftRangesAfter', { 
+      newRange: updatedBlock && isTextBlock(updatedBlock) ? `[${updatedBlock.textRange.start}, ${updatedBlock.textRange.end}]` : 'not found',
+      textInRange: updatedBlock && isTextBlock(updatedBlock) ? JSON.stringify(this.state.buffer.getRange(updatedBlock.textRange.start, updatedBlock.textRange.end)) : 'n/a'
+    });
+    
     this.shiftMarksInBlockAfter(block, offset, text.length);
     
     const event = DocumentEvents.textInserted(this.state.id, blockId, offset, text);
@@ -245,11 +266,17 @@ export class Document {
     
     const newBlockId = BlockId.create();
     const splitPoint = block.textRange.start + offset;
+    
+    // Insert newline at the split point
+    this.state.buffer.insert(splitPoint, "\n");
+    
+    // Left block ends at split point (before the newline)
     const leftRange = new BufferRange(block.textRange.start, splitPoint);
-    const rightRange = new BufferRange(splitPoint, block.textRange.end);
+    // Right block starts after the newline
+    const rightRange = new BufferRange(splitPoint + 1, block.textRange.end + 1);
     
     const rightMarks = block.marks
-      .map(m => m.slice(rightRange))
+      .map(m => m.slice(new BufferRange(splitPoint, block.textRange.end)))
       .filter((m): m is FormattingMark => m !== null)
       .map(m => new FormattingMark(
         new BufferRange(m.start - splitPoint, m.end - splitPoint),
@@ -280,6 +307,10 @@ export class Document {
     
     this.updateSectionChildren(section.id, newChildren);
     
+    // Shift ranges for blocks after the new right block
+    // The right block ends at block.textRange.end + 1, so shift blocks starting from there
+    this.shiftRangesAfter(block.textRange.end + 1, 1);
+    
     const event = DocumentEvents.blockSplit(this.state.id, blockId, newBlockId, offset);
     this.eventsList.push(event);
     this.state.modifiedAt = Date.now();
@@ -297,20 +328,30 @@ export class Document {
     const targetLocation = this.findSectionAndBlockIndex(targetId);
     if (!targetLocation) return null;
     
+    // The newline is at the end of the target block (between the two blocks)
+    const newlinePos = targetBlock.textRange.end;
+    
+    // Get merged text before modifying buffer
     const mergedText = this.state.buffer.getRange(
       sourceBlock.textRange.start,
       sourceBlock.textRange.end
     );
     const deletedMarks = [...sourceBlock.marks];
     
-    const newEnd = targetBlock.textRange.end + sourceBlock.textRange.length;
+    // Delete the newline
+    this.state.buffer.delete(newlinePos, 1);
+    
+    // Merged block: target start to (target length + source length)
+    const newEnd = targetBlock.textRange.start + targetBlock.textRange.length + sourceBlock.textRange.length;
     const newRange = new BufferRange(targetBlock.textRange.start, newEnd);
     
+    // Shift source marks: they were relative to source block start, now relative to target block position
+    // After merge, source content starts at targetBlock.textRange.length position in merged content
     const shiftedSourceMarks = sourceBlock.marks.map(m => 
       new FormattingMark(
         new BufferRange(
-          m.start - sourceBlock.textRange.start + targetBlock.textRange.length, 
-          m.end - sourceBlock.textRange.start + targetBlock.textRange.length
+          m.start + targetBlock.textRange.length,
+          m.end + targetBlock.textRange.length
         ),
         m.attrs
       )
@@ -332,6 +373,9 @@ export class Document {
     }
     
     this.updateSectionChildren(targetSection.id, newChildren);
+    
+    // Shift all blocks after the merged block
+    this.shiftRangesAfter(newEnd, -1, targetId);
     
     const event = DocumentEvents.blocksMerged(this.state.id, targetId, sourceId, mergedText, deletedMarks);
     this.eventsList.push(event);
@@ -571,62 +615,79 @@ export class Document {
   private shiftRangesAfter(pos: number, delta: number, sourceBlockId?: BlockId): void {
     if (delta === 0) return;
     
+    // Process each block - we need to be careful because updateSectionChildren 
+    // creates a new sections array, so we should collect all updates and apply them together
+    // to avoid iterating over stale data
+    
+    const updates: Array<{ sectionId: SectionId; blockIndex: number; updatedBlock: Block }> = [];
+    
     for (const section of this.state.sections) {
       for (let i = 0; i < section.children.length; i++) {
         const block = section.children[i];
         if (!block) continue;
-        this.shiftBlockRanges(block, pos, delta, section, i, sourceBlockId);
+        const result = this.computeShiftedBlock(block, pos, delta, sourceBlockId);
+        if (result) {
+          updates.push({ sectionId: section.id, blockIndex: i, updatedBlock: result });
+        }
       }
+    }
+    
+    // Apply all updates - batch them by section to minimize array recreations
+    const sectionUpdates = new Map<SectionId, Map<number, Block>>();
+    for (const { sectionId, blockIndex, updatedBlock } of updates) {
+      if (!sectionUpdates.has(sectionId)) {
+        sectionUpdates.set(sectionId, new Map());
+      }
+      sectionUpdates.get(sectionId)!.set(blockIndex, updatedBlock);
+    }
+    
+    for (const [sectionId, blockUpdates] of sectionUpdates) {
+      const section = this.state.sections.find(s => s.id === sectionId);
+      if (!section) continue;
+      const newChildren = [...section.children];
+      for (const [blockIndex, updatedBlock] of blockUpdates) {
+        newChildren[blockIndex] = updatedBlock;
+      }
+      this.updateSectionChildren(sectionId, newChildren);
     }
   }
 
-  private shiftBlockRanges(block: Block, pos: number, delta: number, section: Section, blockIndex: number, sourceBlockId?: BlockId): void {
+  private computeShiftedBlock(block: Block, pos: number, delta: number, sourceBlockId?: BlockId): Block | null {
     if (isTextBlock(block)) {
       const { start, end } = block.textRange;
+      const isSourceBlock = block.id === sourceBlockId;
+      
+      console.log('computeShiftedBlock', { start, end, pos, delta, isSourceBlock, case: null });
+      
       if (delta > 0 && start === end && pos === start) {
         // Empty block, inserting at its position: expand range to include new text
-        const newRange = new BufferRange(start, start + delta);
-        const updated: Block = { ...block, textRange: newRange };
-        const newChildren = [...section.children];
-        newChildren[blockIndex] = updated;
-        this.updateSectionChildren(section.id, newChildren);
-      } else if (start >= pos && block.id !== sourceBlockId) {
-        // Block starts at or after insertion point, but not the block being edited: shift both start and end
-        const newRange = new BufferRange(start + delta, end + delta);
-        const updated: Block = { ...block, textRange: newRange };
-        const newChildren = [...section.children];
-        newChildren[blockIndex] = updated;
-        this.updateSectionChildren(section.id, newChildren);
+        console.log('computeShiftedBlock', { case: 'empty-block-expansion', newEnd: start + delta });
+        return { ...block, textRange: new BufferRange(start, start + delta) };
+      } else if (!isSourceBlock && start >= pos) {
+        // Block starts at or after insertion point, and is not the source block: shift both start and end
+        console.log('computeShiftedBlock', { case: 'shift-both', newStart: start + delta, newEnd: end + delta });
+        return { ...block, textRange: new BufferRange(start + delta, end + delta) };
       } else if (end >= pos) {
         // Inserting within or at the end of this block: extend the end only
-        const newRange = new BufferRange(start, end + delta);
-        const updated: Block = { ...block, textRange: newRange };
-        const newChildren = [...section.children];
-        newChildren[blockIndex] = updated;
-        this.updateSectionChildren(section.id, newChildren);
+        console.log('computeShiftedBlock', { case: 'extend-end', newEnd: end + delta });
+        return { ...block, textRange: new BufferRange(start, end + delta) };
+      } else {
+        console.log('computeShiftedBlock', { case: 'no-match' });
       }
     } else if (isImage(block)) {
       if (block.bufferPosition >= pos) {
-        const updated: Block = { ...block, bufferPosition: block.bufferPosition + delta };
-        const newChildren = [...section.children];
-        newChildren[blockIndex] = updated;
-        this.updateSectionChildren(section.id, newChildren);
+        return { ...block, bufferPosition: block.bufferPosition + delta };
       }
     } else if (isTable(block)) {
       if (block.textRange.start >= pos) {
         const newRange = new BufferRange(block.textRange.start + delta, block.textRange.end + delta);
-        const updated: Block = { ...block, textRange: newRange };
-        const newChildren = [...section.children];
-        newChildren[blockIndex] = updated;
-        this.updateSectionChildren(section.id, newChildren);
+        return { ...block, textRange: newRange };
       } else if (block.textRange.end > pos) {
         const newRange = new BufferRange(block.textRange.start, block.textRange.end + delta);
-        const updated: Block = { ...block, textRange: newRange };
-        const newChildren = [...section.children];
-        newChildren[blockIndex] = updated;
-        this.updateSectionChildren(section.id, newChildren);
+        return { ...block, textRange: newRange };
       }
     }
+    return null;
   }
 
   private shiftMarksInBlockAfter(block: TextBlock, localPos: number, delta: number): void {
