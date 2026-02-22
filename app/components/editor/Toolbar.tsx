@@ -11,6 +11,7 @@ import {
 import { TOGGLE_MODE_SHORTCUT } from "~/lib/doc/hotkeys";
 import type { EditorMode } from "~/lib/doc/schema";
 import type { EditorApi } from "./core/EditorContext";
+import { getSelectionOffsets } from "./core/domSelection";
 
 interface ToolbarProps {
   editor: EditorApi | null;
@@ -103,6 +104,7 @@ export function Toolbar({
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showSizePopover, setShowSizePopover] = useState(false);
   const [tableRows, setTableRows] = useState(3);
+  const savedSelectionRef = useRef<{ anchor: number; focus: number } | null>(null);
   const [tableCols, setTableCols] = useState(4);
   const [tableIncludeHeaders, setTableIncludeHeaders] = useState(true);
   const insertMenuRef = useRef<HTMLDivElement>(null);
@@ -140,8 +142,24 @@ export function Toolbar({
     fn(editor);
   };
 
+  const saveSelectionForFormat = () => {
+    if (!editor) return;
+    const root = editor.getRootElement();
+    if (!root) return;
+    const sel = getSelectionOffsets(root);
+    if (sel) savedSelectionRef.current = sel;
+  };
+
   const onFontChange = (value: string) => {
-    run((e) => e.execFormat("font", value));
+    run((editor) => {
+      const sel = savedSelectionRef.current;
+      if (sel) {
+        editor.execFormatWithSelection(sel.anchor, sel.focus, "font", value);
+        savedSelectionRef.current = null;
+      } else {
+        editor.execFormat("font", value);
+      }
+    });
   };
 
   const onFontSizeChange = (value: string) => {
@@ -150,7 +168,16 @@ export function Toolbar({
       return;
     }
     setIsCustomFontSize(false);
-    run((e) => e.execFormat("fontSize", value === "default" ? "" : value));
+    run((editor) => {
+      const sel = savedSelectionRef.current;
+      const sizeValue = value === "default" ? "" : value;
+      if (sel) {
+        editor.execFormatWithSelection(sel.anchor, sel.focus, "fontSize", sizeValue);
+        savedSelectionRef.current = null;
+      } else {
+        editor.execFormat("fontSize", sizeValue);
+      }
+    });
   };
 
   const onCustomFontSizeApply = () => {
@@ -162,7 +189,15 @@ export function Toolbar({
     const value = `${clampFontSizePx(px)}px`;
     setIsCustomFontSize(false);
     setCurrentFontSize(value);
-    run((e) => e.execFormat("fontSize", value));
+    run((editor) => {
+      const sel = savedSelectionRef.current;
+      if (sel) {
+        editor.execFormatWithSelection(sel.anchor, sel.focus, "fontSize", value);
+        savedSelectionRef.current = null;
+      } else {
+        editor.execFormat("fontSize", value);
+      }
+    });
   };
 
   const onInsertTable = () => {
@@ -209,30 +244,41 @@ export function Toolbar({
       </div>
       <span className="toolbar-divider" />
 
-      {/* Format */}
+      {/* Format - use onMouseDown to prevent losing editor selection when clicking */}
       <div className="toolbar-group">
         <button
+          type="button"
           className="toolbar-btn-minimal"
-          onClick={() => run((e) => e.execFormat("bold"))}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            run((editor) => editor.execFormat("bold"));
+          }}
           title="Bold"
+          data-testid="format-bold"
         >
           B
         </button>
         <button
+          type="button"
           className="toolbar-btn-minimal"
-          onClick={() => run((e) => e.execFormat("italic"))}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            run((editor) => editor.execFormat("italic"));
+          }}
           title="Italic"
+          data-testid="format-italic"
         >
           I
         </button>
       </div>
       <span className="toolbar-divider" />
 
-      {/* Style */}
+      {/* Style - save selection on mousedown so format applies to selected text after dropdown closes */}
       <div className="toolbar-group">
         <select
           className="toolbar-select min-w-[5.5rem]"
           value={FONT_OPTIONS.some((o) => o.value === currentFont) ? currentFont : DEFAULT_FONT}
+          onMouseDown={saveSelectionForFormat}
           onChange={(e) => onFontChange(e.target.value)}
           title="Font"
         >
@@ -256,6 +302,7 @@ export function Toolbar({
                     ? currentFontSize
                     : "default"
             }
+            onMouseDown={saveSelectionForFormat}
             onChange={(e) => onFontSizeChange(e.target.value)}
             title="Size"
           >

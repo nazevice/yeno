@@ -115,6 +115,16 @@ export function ContentEditableRoot({
           editor.redo();
           return;
         }
+        if (e.key === "b") {
+          e.preventDefault();
+          editor.execFormat("bold");
+          return;
+        }
+        if (e.key === "i") {
+          e.preventDefault();
+          editor.execFormat("italic");
+          return;
+        }
       }
     },
     [editor],

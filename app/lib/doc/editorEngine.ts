@@ -17,7 +17,94 @@ import type {
 import { OBJECT_REPLACEMENT_CHAR } from "./schema";
 import { createEmptyDocument, createEmptyParagraph } from "./createEmptyDocument";
 import { generateId } from "./uuid";
+import type { InlineMark } from "./schema";
+import { parseFontSizePx } from "./fonts";
 import { resolveBufferOffset, findBlockById, findSectionAndBlockIndex, getBlockSpan } from "./treeUtils";
+
+/** Merge format attrs into marks for range [start, end]. Toggle b/i; set font/fontSize. */
+function mergeMarks(
+  marks: InlineMark[],
+  start: number,
+  end: number,
+  attrs: Record<string, unknown>,
+): InlineMark[] {
+  const result: InlineMark[] = [];
+  for (const m of marks) {
+    if (m.end <= start || m.start >= end) {
+      result.push({ ...m, attrs: m.attrs ? { ...m.attrs } : undefined });
+      continue;
+    }
+    const before = m.start < start ? { start: m.start, end: start, attrs: m.attrs } : null;
+    const inside = { start: Math.max(m.start, start), end: Math.min(m.end, end), attrs: m.attrs };
+    const after = m.end > end ? { start: end, end: m.end, attrs: m.attrs } : null;
+    if (before && before.end > before.start) result.push(before);
+    const newAttrs = applyAttrsToMark(inside.attrs, attrs);
+    if (newAttrs && Object.keys(newAttrs).length > 0) {
+      result.push({ ...inside, attrs: newAttrs });
+    } else if (inside.end > inside.start) {
+      result.push(inside);
+    }
+    if (after && after.end > after.start) result.push(after);
+  }
+  const covered = new Set<number>();
+  for (const m of result) {
+    for (let i = m.start; i < m.end; i++) covered.add(i);
+  }
+  for (let pos = start; pos < end; pos++) {
+    if (covered.has(pos)) continue;
+    const newAttrs = applyAttrsToMark(undefined, attrs);
+    if (newAttrs && Object.keys(newAttrs).length > 0) {
+      let extend = pos;
+      while (extend < end && !covered.has(extend)) {
+        covered.add(extend);
+        extend++;
+      }
+      result.push({ start: pos, end: extend, attrs: newAttrs });
+    }
+  }
+  return result.sort((a, b) => a.start - b.start);
+}
+
+function applyAttrsToMark(
+  existing: InlineMark["attrs"],
+  delta: Record<string, unknown>,
+): InlineMark["attrs"] | undefined {
+  const out: NonNullable<InlineMark["attrs"]> = existing ? { ...existing } : {};
+  for (const [k, v] of Object.entries(delta)) {
+    if (k === "b" || k === "i") {
+      if (v === true) out[k as "b" | "i"] = true;
+      else if (v === false) delete out[k as "b" | "i"];
+    } else if (k === "font") {
+      if (v && typeof v === "string") out.font = v;
+      else delete out.font;
+    } else if (k === "fontSize") {
+      if (v != null && typeof v === "number") out.fontSize = v;
+      else delete out.fontSize;
+    } else if (k === "font" && (v === null || v === undefined || v === "")) {
+      delete out.font;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Check if entire range [start,end] has attr in marks. */
+function rangeHasAttr(marks: InlineMark[], start: number, end: number, attr: "b" | "i"): boolean {
+  if (start >= end) return false;
+  const covered: Array<[number, number]> = [];
+  for (const m of marks) {
+    if (m.attrs?.[attr]) {
+      covered.push([Math.max(m.start, start), Math.min(m.end, end)]);
+    }
+  }
+  covered.sort((a, b) => a[0] - b[0]);
+  let pos = start;
+  for (const [s, e] of covered) {
+    if (s > pos) return false;
+    pos = Math.max(pos, e);
+    if (pos >= end) return true;
+  }
+  return pos >= end;
+}
 
 export interface HistoryEntry {
   tree: DocumentTree;
@@ -131,13 +218,20 @@ export class EditorEngine {
   }
 
   private _applyFormat(
-    _nodeId: string,
-    _start: number,
-    _end: number,
-    _attrs: Record<string, unknown>,
+    nodeId: string,
+    start: number,
+    end: number,
+    attrs: Record<string, unknown>,
   ): boolean {
-    // TODO: add/merge InlineMark into the node's marks array
-    return false;
+    const block = findBlockById(this._tree, nodeId);
+    if (!block || (block.type !== "paragraph" && block.type !== "heading")) return false;
+    const len = block.textRange.end - block.textRange.start;
+    start = Math.max(0, Math.min(start, len));
+    end = Math.max(start, Math.min(end, len));
+    if (start >= end) return false;
+    block.marks = mergeMarks(block.marks, start, end, attrs);
+    this._notify();
+    return true;
   }
 
   private _applyInsertBlock(_afterNodeId: string | null, _block: BlockNode): boolean {
@@ -298,11 +392,48 @@ export class EditorEngine {
     return true;
   }
 
+  /**
+   * Apply format to the selection (buffer offsets).
+   * Supports: bold, italic, font, fontSize.
+   */
+  applyFormat(anchor: number, focus: number, cmd: string, value?: string): boolean {
+    const anchorRes = resolveBufferOffset(this._tree, anchor);
+    const focusRes = resolveBufferOffset(this._tree, focus);
+    if (!anchorRes || !focusRes || anchorRes.nodeId !== focusRes.nodeId) return false;
+    const block = findBlockById(this._tree, anchorRes.nodeId);
+    if (!block || (block.type !== "paragraph" && block.type !== "heading")) return false;
+    const start = Math.min(anchorRes.nodeOffset, focusRes.nodeOffset);
+    const end = Math.max(anchorRes.nodeOffset, focusRes.nodeOffset);
+    if (start >= end) return false;
+
+    let attrs: Record<string, unknown> = {};
+    if (cmd === "bold") {
+      attrs = { b: rangeHasAttr(block.marks, start, end, "b") ? false : true };
+    } else if (cmd === "italic") {
+      attrs = { i: rangeHasAttr(block.marks, start, end, "i") ? false : true };
+    } else if (cmd === "font" && value) {
+      attrs = { font: value };
+    } else if (cmd === "fontSize") {
+      if (value === "default" || value === "" || !value) {
+        attrs = { fontSize: null };
+      } else {
+        const px = parseFontSizePx(value);
+        if (px != null) attrs = { fontSize: px };
+      }
+    } else {
+      return false;
+    }
+    if (Object.keys(attrs).length === 0) return false;
+
+    this.pushHistory();
+    return this._applyFormat(anchorRes.nodeId, start, end, attrs);
+  }
+
   /** Replace the entire document with plain text (e.g. for load test / restore). */
   loadPlainText(text: string): void {
     const paragraph = createEmptyParagraph(0);
     paragraph.textRange = { start: 0, end: text.length };
-    const sectionId = require("./uuid").generateId();
+    const sectionId = generateId();
     const section: import("./schema").SectionNode = {
       id: sectionId,
       type: "section",

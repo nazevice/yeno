@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { renderDocument } from "../DocumentRenderer";
-import { createRangeFromOffsets } from "./domSelection";
+import { createRangeFromOffsets, getSelectionOffsets } from "./domSelection";
 import type { EditorEngine } from "~/lib/doc/editorEngine";
 
 export interface EditorApi {
@@ -21,6 +21,8 @@ export interface EditorApi {
   getContent: () => { text: string; html: string };
   setContent: (text: string, ranges?: unknown[], assets?: unknown[]) => void;
   execFormat: (cmd: string, value?: string) => void;
+  /** Apply format with explicit selection (use when DOM selection is lost, e.g. after opening a dropdown). */
+  execFormatWithSelection: (anchor: number, focus: number, cmd: string, value?: string) => void;
   insertTable: (rows: number, cols: number, includeHeaders: boolean) => void;
   insertImage: (name: string, alt: string, dataUrl?: string) => void;
   focus: () => void;
@@ -71,7 +73,16 @@ export function EditorProvider({
         html: rootRef.current?.innerHTML ?? "",
       }),
       setContent: (text: string) => engine.loadPlainText(text),
-      execFormat: () => {},
+      execFormat: (cmd: string, value?: string) => {
+        const root = rootRef.current;
+        if (!root) return;
+        const sel = getSelectionOffsets(root);
+        if (!sel) return;
+        engine.applyFormat(sel.anchor, sel.focus, cmd, value);
+      },
+      execFormatWithSelection: (anchor: number, focus: number, cmd: string, value?: string) => {
+        engine.applyFormat(anchor, focus, cmd, value);
+      },
       insertTable: () => {},
       insertImage: (name: string, alt: string) => {
         engine.insertImage({ name, alt });
@@ -85,7 +96,7 @@ export function EditorProvider({
       get canRedo() {
         return engine.canRedo;
       },
-      registerUpdateListener: () => () => {},
+      registerUpdateListener: (listener: () => void) => engine.subscribe(listener),
       pushHistory: () => engine.pushHistory(),
     };
   }, [engine]);

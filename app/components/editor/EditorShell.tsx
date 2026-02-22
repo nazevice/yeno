@@ -117,6 +117,16 @@ function EditorShellContent({
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const editor = useEditor();
+  useEffect(() => {
+    if (import.meta.env.DEV && editor && typeof window !== "undefined") {
+      (window as unknown as { __editor?: typeof editor }).__editor = editor;
+    }
+    return () => {
+      if (import.meta.env.DEV && typeof window !== "undefined") {
+        delete (window as unknown as { __editor?: unknown }).__editor;
+      }
+    };
+  }, [editor]);
   const PAGINATION_TEST_TEXT = `Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.`;
   const BENCHMARK_LINE_CHARS = 2048;
   const clampPx = (val: number, min: number, max: number) =>
