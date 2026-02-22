@@ -22,7 +22,7 @@ body {
 
 /* Toolbar – Apple/Nothing-inspired minimal design */
 .toolbar {
-  @apply flex flex-wrap items-center gap-1 rounded-2xl bg-white/90 px-2.5 py-1.5 shadow-sm ring-1 ring-zinc-200/60 backdrop-blur-xl;
+  @apply relative z-10 flex flex-wrap items-center gap-1 rounded-2xl bg-white/90 px-2.5 py-1.5 shadow-sm ring-1 ring-zinc-200/60 backdrop-blur-xl;
 }
 
 .toolbar-group {
@@ -58,7 +58,7 @@ body {
 }
 
 .toolbar-popover {
-  @apply absolute right-0 top-full z-50 mt-1.5 min-w-[10rem] rounded-xl border border-zinc-200/80 bg-white/95 p-3 shadow-xl backdrop-blur-xl;
+  @apply absolute right-0 top-full z-[100] mt-1.5 min-w-[10rem] rounded-xl border border-zinc-200/80 bg-white/95 p-3 shadow-xl backdrop-blur-xl;
 }
 
 .editor-content {

@@ -11,6 +11,8 @@ import type { Paragraph } from "./entities/Paragraph";
 import type { Heading } from "./entities/Heading";
 import type { Block, TextBlock } from "./entities";
 import { isTextBlock, isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "./entities";
+import { Image, type AssetRef } from "./entities/Image";
+import { Table } from "./entities/Table";
 import { DocumentEvents } from "./events";
 import type { TextInserted, TextDeleted, BlockSplit, BlocksMerged, BlockInserted, BlockDeleted, BlockMoved, TextFormatted, BlockTypeChanged, SectionLayoutChanged } from "./events";
 import type { DocumentSnapshot, DocumentTree } from "./DocumentSnapshot";
@@ -473,6 +475,81 @@ export class Document {
     this.updateSectionChildren(sectionId, newChildren);
     
     const event = DocumentEvents.blockInserted(this.state.id, sectionId, index, block);
+    this.eventsList.push(event);
+    this.state.modifiedAt = Date.now();
+    
+    return event;
+  }
+
+  insertImageBlock(afterBlockId: BlockId, assetRef: AssetRef, alt: string, size: readonly [number, number]): BlockInserted | null {
+    const location = this.findSectionAndBlockIndex(afterBlockId);
+    if (!location) return null;
+    
+    const { section, blockIndex } = location;
+    const afterBlock = section.children[blockIndex];
+    if (!afterBlock) return null;
+    
+    const afterBlockRange = this.getBlockRange(afterBlockId);
+    if (!afterBlockRange) return null;
+    
+    const insertPos = afterBlockRange.end;
+    const blockId = BlockId.create();
+    
+    this.state.buffer.insert(insertPos, "\n\uFFFC");
+    
+    const imageBlock = Image.create(blockId, insertPos + 1, assetRef, alt, size);
+    
+    this.shiftRangesAfter(insertPos, 2, afterBlockId);
+    
+    const newBlockIndex = blockIndex + 1;
+    const newChildren = [...section.children];
+    newChildren.splice(newBlockIndex, 0, imageBlock);
+    this.updateSectionChildren(section.id, newChildren);
+    
+    const event = DocumentEvents.blockInserted(this.state.id, section.id, newBlockIndex, imageBlock);
+    this.eventsList.push(event);
+    this.state.modifiedAt = Date.now();
+    
+    return event;
+  }
+
+  insertTableBlock(afterBlockId: BlockId, rows: number, cols: number): BlockInserted | null {
+    const location = this.findSectionAndBlockIndex(afterBlockId);
+    if (!location) return null;
+    
+    const { section, blockIndex } = location;
+    const afterBlock = section.children[blockIndex];
+    if (!afterBlock) return null;
+    
+    const afterBlockRange = this.getBlockRange(afterBlockId);
+    if (!afterBlockRange) return null;
+    
+    const insertPos = afterBlockRange.end;
+    const blockId = BlockId.create();
+    
+    const tableRows: string[] = [];
+    for (let r = 0; r < rows; r++) {
+      const rowCells: string[] = [];
+      for (let c = 0; c < cols; c++) {
+        rowCells.push("");
+      }
+      tableRows.push(rowCells.join("\t"));
+    }
+    const tableText = "\n" + tableRows.join("\n");
+    
+    this.state.buffer.insert(insertPos, tableText);
+    
+    const textRange = new BufferRange(insertPos + 1, insertPos + tableText.length);
+    const tableBlock = Table.create(blockId, textRange, rows, cols);
+    
+    this.shiftRangesAfter(insertPos, tableText.length, afterBlockId);
+    
+    const newBlockIndex = blockIndex + 1;
+    const newChildren = [...section.children];
+    newChildren.splice(newBlockIndex, 0, tableBlock);
+    this.updateSectionChildren(section.id, newChildren);
+    
+    const event = DocumentEvents.blockInserted(this.state.id, section.id, newBlockIndex, tableBlock);
     this.eventsList.push(event);
     this.state.modifiedAt = Date.now();
     

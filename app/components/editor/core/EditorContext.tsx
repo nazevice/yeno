@@ -3,13 +3,13 @@ import {
   useContext,
   useMemo,
   useRef,
-  useEffect,
   type ReactNode,
 } from "react";
 import { EditorService } from "~/lib/application/EditorService";
 import { TextAttributes } from "~/lib/domain/document/value-objects/TextAttributes";
 import type { Document } from "~/lib/domain/document/Document";
 import type { Selection } from "~/lib/application/SelectionManager";
+import type { AssetRef } from "~/lib/domain/document/entities/Image";
 
 export interface EditorApi {
   getRootElement: () => HTMLElement | null;
@@ -21,7 +21,7 @@ export interface EditorApi {
   execFormat: (cmd: string, value?: string) => void;
   execFormatWithSelection: (anchor: number, focus: number, cmd: string, value?: string) => void;
   insertTable: (rows: number, cols: number, includeHeaders: boolean) => void;
-  insertImage: (name: string, alt: string, dataUrl?: string) => void;
+  insertImage: (assetRef: AssetRef) => void;
   focus: () => void;
   undo: () => void;
   redo: () => void;
@@ -129,9 +129,11 @@ export function EditorProvider({
           }
         }
       },
-      insertTable: () => {},
-      insertImage: (name: string, alt: string) => {
-        console.log("insertImage", name, alt);
+      insertTable: (rows: number, cols: number, _includeHeaders: boolean) => {
+        service.insertTableBlock(rows, cols);
+      },
+      insertImage: (assetRef: AssetRef) => {
+        service.insertImageBlock(assetRef, assetRef.alt, assetRef.size);
       },
       focus: () => rootRef.current?.focus(),
       undo: () => service.undo(),

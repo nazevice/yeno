@@ -217,9 +217,11 @@ export function EditorShell() {
         }
       }
     },
-    insertTable: () => {},
-    insertImage: (name: string, alt: string) => {
-      console.log("insertImage", name, alt);
+    insertTable: (rows: number, cols: number, _includeHeaders: boolean) => {
+      service.insertTableBlock(rows, cols);
+    },
+    insertImage: (assetRef: AssetRef) => {
+      service.insertImageBlock(assetRef, assetRef.alt, assetRef.size);
     },
     focus: () => rootRef.current?.focus(),
     undo: () => service.undo(),
@@ -336,7 +338,7 @@ export function EditorShell() {
                   bytes,
                 };
                 setAssets((prev) => [...prev, asset]);
-                editor.insertImage(file.name, file.name);
+                editor.insertImage(asset);
               };
               reader.readAsDataURL(file);
             }

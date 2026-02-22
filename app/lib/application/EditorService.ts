@@ -347,6 +347,34 @@ export class EditorService {
     this._notify();
   }
 
+  insertImageBlock(assetRef: AssetRef, alt: string, size: readonly [number, number]): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    this.document.insertImageBlock(sel.anchor.blockId, assetRef, alt, size);
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  insertTableBlock(rows: number, cols: number): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    this.document.insertTableBlock(sel.anchor.blockId, rows, cols);
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
   toggleBold(): void {
     if (!this.document) return;
     
