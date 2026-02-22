@@ -1,7 +1,3 @@
-/**
- * Editor context – provides EditorApi (adapter over EditorEngine) and rootRef.
- */
-
 import {
   createContext,
   useContext,
@@ -10,18 +6,19 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
-import { renderDocument } from "../DocumentRenderer";
-import { createRangeFromOffsets, getSelectionOffsets } from "./domSelection";
-import type { EditorEngine } from "~/lib/doc/editorEngine";
+import { EditorService } from "~/lib/application/EditorService";
+import { TextAttributes } from "~/lib/domain/document/value-objects/TextAttributes";
+import type { Document } from "~/lib/domain/document/Document";
+import type { Selection } from "~/lib/application/SelectionManager";
 
 export interface EditorApi {
   getRootElement: () => HTMLElement | null;
+  getDocument: () => Document | null;
   getTextContent: () => string;
   getHTML: () => string;
   getContent: () => { text: string; html: string };
-  setContent: (text: string, ranges?: unknown[], assets?: unknown[]) => void;
+  setContent: (text: string) => void;
   execFormat: (cmd: string, value?: string) => void;
-  /** Apply format with explicit selection (use when DOM selection is lost, e.g. after opening a dropdown). */
   execFormatWithSelection: (anchor: number, focus: number, cmd: string, value?: string) => void;
   insertTable: (rows: number, cols: number, includeHeaders: boolean) => void;
   insertImage: (name: string, alt: string, dataUrl?: string) => void;
@@ -31,11 +28,20 @@ export interface EditorApi {
   canUndo: boolean;
   canRedo: boolean;
   registerUpdateListener: (listener: () => void) => () => void;
-  pushHistory: () => void;
+  getActiveMarks: () => { bold?: boolean | undefined; italic?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
+  getSelection: () => Selection | null;
+  getSelectionOffsets: () => { anchor: number; focus: number } | null;
+  setSelectionFromOffsets: (anchor: number, focus: number) => void;
+  insertText: (text: string) => void;
+  deleteBackward: () => void;
+  deleteForward: () => void;
+  splitBlock: () => void;
+  mergeBlocks: () => void;
 }
 
 type EditorContextValue = {
   editor: EditorApi;
+  service: EditorService;
   rootRef: React.RefObject<HTMLDivElement | null>;
 };
 
@@ -54,78 +60,118 @@ export function useEditorContext(): EditorContextValue {
 
 export function EditorProvider({
   children,
-  engine,
-  getAssetDataUrl = () => null,
+  service,
+  rootRef: externalRootRef,
 }: {
   children: ReactNode;
-  engine: EditorEngine;
-  getAssetDataUrl?: (name: string) => string | null;
+  service: EditorService;
+  rootRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const internalRootRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = externalRootRef ?? internalRootRef;
 
   const editor = useMemo((): EditorApi => {
     return {
       getRootElement: () => rootRef.current,
-      getTextContent: () => engine.textBuffer.getText(),
+      getDocument: () => service.getDocument(),
+      getTextContent: () => service.getDocument()?.getText() ?? "",
       getHTML: () => rootRef.current?.innerHTML ?? "",
       getContent: () => ({
-        text: engine.textBuffer.getText(),
+        text: service.getDocument()?.getText() ?? "",
         html: rootRef.current?.innerHTML ?? "",
       }),
-      setContent: (text: string) => engine.loadPlainText(text),
+      setContent: (text: string) => {
+        service.newDocument();
+        const doc = service.getDocument();
+        if (doc && text) {
+          const firstBlock = doc.getFirstBlock();
+          if (firstBlock) {
+            service.insertText(text);
+          }
+        }
+      },
       execFormat: (cmd: string, value?: string) => {
-        const root = rootRef.current;
-        if (!root) return;
-        const sel = getSelectionOffsets(root);
+        const sel = service.selection;
         if (!sel) return;
-        engine.applyFormat(sel.anchor, sel.focus, cmd, value);
+        
+        if (cmd === "bold") {
+          service.toggleBold();
+        } else if (cmd === "italic") {
+          service.toggleItalic();
+        } else if (cmd === "textAlign" && value) {
+          const blockId = sel.anchor.blockId;
+          const doc = service.getDocument();
+          if (doc) {
+            const block = doc.getBlock(blockId);
+            if (block) {
+              doc.setTextAlign(blockId, value as "left" | "center" | "right" | "justify");
+            }
+          }
+        }
       },
       execFormatWithSelection: (anchor: number, focus: number, cmd: string, value?: string) => {
-        engine.applyFormat(anchor, focus, cmd, value);
+        service.setSelectionFromOffsets(anchor, focus);
+        if (cmd === "bold") {
+          service.toggleBold();
+        } else if (cmd === "italic") {
+          service.toggleItalic();
+        }
       },
       insertTable: () => {},
       insertImage: (name: string, alt: string) => {
-        engine.insertImage({ name, alt });
+        console.log("insertImage", name, alt);
       },
       focus: () => rootRef.current?.focus(),
-      undo: () => engine.undo(),
-      redo: () => engine.redo(),
+      undo: () => service.undo(),
+      redo: () => service.redo(),
       get canUndo() {
-        return engine.canUndo;
+        return service.canUndo;
       },
       get canRedo() {
-        return engine.canRedo;
+        return service.canRedo;
       },
-      registerUpdateListener: (listener: () => void) => engine.subscribe(listener),
-      pushHistory: () => engine.pushHistory(),
+      registerUpdateListener: (listener: () => void) => service.subscribe(listener),
+      getActiveMarks: () => {
+        const marks = service.activeMarks;
+        if (!marks) return null;
+        const result: { bold?: boolean | undefined; italic?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } = {};
+        if (marks.bold !== undefined) result.bold = marks.bold;
+        if (marks.italic !== undefined) result.italic = marks.italic;
+        if (marks.font !== undefined) result.font = marks.font;
+        if (marks.fontSize !== undefined) result.fontSize = marks.fontSize;
+        return result;
+      },
+      getSelection: () => service.selection,
+      getSelectionOffsets: () => {
+        const sel = service.selection;
+        if (!sel) return null;
+        const doc = service.getDocument();
+        if (!doc) return null;
+        const anchorBlock = doc.getBlock(sel.anchor.blockId);
+        const focusBlock = doc.getBlock(sel.focus.blockId);
+        if (!anchorBlock || !focusBlock) return null;
+        const anchorRange = doc.getBlockRange(sel.anchor.blockId);
+        const focusRange = doc.getBlockRange(sel.focus.blockId);
+        if (!anchorRange || !focusRange) return null;
+        return {
+          anchor: anchorRange.start + sel.anchor.offset,
+          focus: focusRange.start + sel.focus.offset,
+        };
+      },
+      setSelectionFromOffsets: (anchor: number, focus: number) => {
+        service.setSelectionFromOffsets(anchor, focus);
+      },
+      insertText: (text: string) => service.insertText(text),
+      deleteBackward: () => service.backspace(),
+      deleteForward: () => service.delete(),
+      splitBlock: () => service.splitBlock(),
+      mergeBlocks: () => service.mergeBlocks(),
     };
-  }, [engine]);
-
-  const render = () => {
-    const root = rootRef.current;
-    if (!root) return;
-    const hadSelection = engine.getSelectionOffsets();
-    renderDocument(root, engine.tree, engine.textBuffer, getAssetDataUrl);
-    if (hadSelection) {
-      const range = createRangeFromOffsets(root, hadSelection.anchor, hadSelection.focus);
-      if (range) {
-        const sel = window.getSelection();
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-      }
-      root.focus();
-    }
-  };
-
-  useEffect(() => {
-    const unsub = engine.subscribe(render);
-    render();
-    return unsub;
-  }, [engine]);
+  }, [service]);
 
   const value = useMemo(
-    (): EditorContextValue => ({ editor, engine, rootRef }),
-    [editor, engine],
+    (): EditorContextValue => ({ editor, service, rootRef }),
+    [editor, service],
   );
 
   return (

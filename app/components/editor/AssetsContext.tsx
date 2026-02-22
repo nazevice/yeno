@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useEffect } from "react";
-import type { AssetRef } from "~/lib/doc/schema";
+import type { AssetRef } from "~/lib/domain/document/entities/Image";
 
 /** Ref for assets added in the same tick before state flushes (e.g. insert then immediate render) */
 const pendingAssetsRef = { current: [] as AssetRef[] };

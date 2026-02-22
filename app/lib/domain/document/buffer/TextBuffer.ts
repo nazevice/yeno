@@ -1,15 +1,10 @@
-/**
- * TextBuffer – Piece Table implementation for the document model.
- * Matches Rust PieceTableContent semantics (insert/delete chunks applied in order).
- */
-
-import type { PieceChunk, PieceTableContent } from "./schema";
+import type { PieceChunk, TextBufferContent } from "./TextBufferTypes";
 
 export class TextBuffer {
   private baseText: string;
   private chunks: PieceChunk[];
 
-  constructor(content?: PieceTableContent) {
+  private constructor(content?: TextBufferContent) {
     if (content) {
       this.baseText = content.baseText;
       this.chunks = [...content.chunks];
@@ -19,7 +14,14 @@ export class TextBuffer {
     }
   }
 
-  /** Rebuild full text by applying all chunks. */
+  static create(): TextBuffer {
+    return new TextBuffer();
+  }
+
+  static fromContent(content: TextBufferContent): TextBuffer {
+    return new TextBuffer(content);
+  }
+
   getText(): string {
     let text = this.baseText;
     for (const chunk of this.chunks) {
@@ -37,13 +39,15 @@ export class TextBuffer {
     return text;
   }
 
-  /** Get a range of text. */
   getRange(start: number, end: number): string {
     const text = this.getText();
     return text.slice(start, end);
   }
 
-  /** Insert text at position. Appends an Insert chunk. */
+  length(): number {
+    return this.getText().length;
+  }
+
   insert(pos: number, text: string): void {
     if (text.length === 0) return;
     this.chunks.push({
@@ -53,7 +57,6 @@ export class TextBuffer {
     });
   }
 
-  /** Delete `len` characters starting at `pos`. Appends a Delete chunk. */
   delete(pos: number, len: number): void {
     if (len <= 0) return;
     this.chunks.push({
@@ -63,21 +66,18 @@ export class TextBuffer {
     });
   }
 
-  /** Get the current piece table content (for serialization). */
-  toContent(): PieceTableContent {
+  toContent(): TextBufferContent {
     return {
       baseText: this.baseText,
       chunks: [...this.chunks],
     };
   }
 
-  /** Replace entire content (e.g. after undo). */
-  replaceContent(content: PieceTableContent): void {
+  replaceContent(content: TextBufferContent): void {
     this.baseText = content.baseText;
     this.chunks = [...content.chunks];
   }
 
-  /** Get the number of chunks (for debugging). */
   chunkCount(): number {
     return this.chunks.length;
   }

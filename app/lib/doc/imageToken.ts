@@ -9,8 +9,8 @@ export const IMAGE_TOKEN_REGEX = /!\[([^\]]*)\]\(asset:\/\/([^#)]+)(?:#(\d+)x(\d
 export interface ImageTokenMatch {
   alt: string;
   name: string;
-  width?: number;
-  height?: number;
+  width?: number | undefined;
+  height?: number | undefined;
   fullMatch: string;
 }
 
@@ -49,10 +49,10 @@ export function toImageToken(
 export interface LineSegment {
   type: "text" | "image";
   value: string;
-  alt?: string;
-  name?: string;
-  width?: number;
-  height?: number;
+  alt?: string | undefined;
+  name?: string | undefined;
+  width?: number | undefined;
+  height?: number | undefined;
 }
 
 /**

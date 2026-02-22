@@ -1,11 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const isCI = !!process.env['CI'];
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  forbidOnly: isCI,
+  retries: isCI ? 2 : 0,
+  workers: isCI ? 1 : 4,
   reporter: "html",
   use: {
     baseURL: "http://localhost:5173",

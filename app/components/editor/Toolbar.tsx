@@ -9,9 +9,10 @@ import {
   parseFontSizePx,
 } from "~/lib/doc/fonts";
 import { TOGGLE_MODE_SHORTCUT } from "~/lib/doc/hotkeys";
-import type { EditorMode } from "~/lib/doc/schema";
 import type { EditorApi } from "./core/EditorContext";
 import { getSelectionOffsets } from "./core/domSelection";
+
+type EditorMode = "continuous" | "paginated";
 
 interface ToolbarProps {
   editor: EditorApi | null;

@@ -154,10 +154,10 @@ function serializeResult(result: unknown): unknown {
     const obj = result as Record<string, unknown>;
     
     // Check if this looks like a CompressResult
-    if ('data' in obj && obj.data instanceof Uint8Array) {
+    if ('data' in obj && obj['data'] instanceof Uint8Array) {
       return {
         ...obj,
-        data: obj.data,
+        data: obj['data'],
       };
     }
 

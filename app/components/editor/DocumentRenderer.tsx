@@ -1,31 +1,30 @@
 /**
- * Renders DocumentTree + TextBuffer to DOM.
- * Applies InlineMarks (bold, italic, font) when rendering paragraphs/headings.
+ * Renders Document to DOM.
+ * Uses the new domain model.
  */
 
 import { DEFAULT_FONT } from "~/lib/doc/fonts";
-import type {
-  BlockNode,
-  DocumentTree,
-  InlineMark,
-  ParagraphNode,
-  HeadingNode,
-} from "~/lib/doc/schema";
-import type { TextBuffer } from "~/lib/doc/textBuffer";
+import type { Document as DomainDocument } from "~/lib/domain/document/Document";
+import type { Block, Paragraph, Heading, Table, Image, List, Blockquote } from "~/lib/domain/document/entities";
+import type { FormattingMark } from "~/lib/domain/document/value-objects/FormattingMark";
+import { isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "~/lib/domain/document/entities";
 
 export function renderDocument(
   root: HTMLElement,
-  tree: DocumentTree,
-  buffer: TextBuffer,
+  doc: DomainDocument,
   getAssetDataUrl?: (name: string) => string | null,
 ): void {
   root.innerHTML = "";
-  for (const section of tree.root.children) {
+  
+  const buffer = doc.getBuffer();
+  
+  for (const section of doc.sections) {
     for (const block of section.children) {
-      const el = renderBlock(block, tree, buffer, getAssetDataUrl);
+      const el = renderBlock(block, doc, buffer, getAssetDataUrl);
       if (el) root.appendChild(el);
     }
   }
+  
   if (root.childNodes.length === 0) {
     const p = document.createElement("p");
     p.innerHTML = "<br>";
@@ -34,49 +33,55 @@ export function renderDocument(
 }
 
 function renderBlock(
-  block: BlockNode,
-  _tree: DocumentTree,
-  buffer: TextBuffer,
+  block: Block,
+  doc: DomainDocument,
+  buffer: { getRange: (start: number, end: number) => string },
   getAssetDataUrl?: (name: string) => string | null,
 ): HTMLElement | null {
-  if (block.type === "paragraph") {
+  if (isParagraph(block)) {
     return renderParagraph(block, buffer);
   }
-  if (block.type === "heading") {
+  if (isHeading(block)) {
     return renderHeading(block, buffer);
   }
-  if (block.type === "image") {
+  if (isImage(block)) {
     return renderImage(block, getAssetDataUrl);
   }
-  if (block.type === "table") {
+  if (isTable(block)) {
     return renderTable(block, buffer);
   }
-  if (block.type === "blockquote") {
-    return renderBlockquote(block, buffer, getAssetDataUrl);
+  if (isBlockquote(block)) {
+    return renderBlockquote(block, doc, buffer, getAssetDataUrl);
   }
-  if (block.type === "list") {
-    return renderList(block, buffer, getAssetDataUrl);
+  if (isList(block)) {
+    return renderList(block, doc, buffer, getAssetDataUrl);
   }
   return null;
 }
 
-function renderParagraph(node: ParagraphNode, buffer: TextBuffer): HTMLParagraphElement {
+function renderParagraph(node: Paragraph, buffer: { getRange: (start: number, end: number) => string }): HTMLParagraphElement {
   const p = document.createElement("p");
-  p.setAttribute("data-node-id", node.id);
+  p.setAttribute("data-node-id", node.id.toString());
   const text = buffer.getRange(node.textRange.start, node.textRange.end);
   applyTextWithMarks(p, text, node.marks);
+  if (node.textAlign) {
+    p.style.textAlign = node.textAlign;
+  }
   if (!p.childNodes.length) {
     p.innerHTML = "<br>";
   }
   return p;
 }
 
-function renderHeading(node: HeadingNode, buffer: TextBuffer): HTMLHeadingElement {
+function renderHeading(node: Heading, buffer: { getRange: (start: number, end: number) => string }): HTMLHeadingElement {
   const tag = `h${node.level}` as "h1" | "h2" | "h3";
   const el = document.createElement(tag);
-  el.setAttribute("data-node-id", node.id);
+  el.setAttribute("data-node-id", node.id.toString());
   const text = buffer.getRange(node.textRange.start, node.textRange.end);
   applyTextWithMarks(el, text, node.marks);
+  if (node.textAlign) {
+    el.style.textAlign = node.textAlign;
+  }
   if (!el.childNodes.length) {
     el.innerHTML = "<br>";
   }
@@ -86,35 +91,39 @@ function renderHeading(node: HeadingNode, buffer: TextBuffer): HTMLHeadingElemen
 function applyTextWithMarks(
   container: HTMLElement,
   text: string,
-  marks: InlineMark[],
+  marks: readonly FormattingMark[],
 ): void {
   if (marks.length === 0) {
     container.textContent = text;
     return;
   }
+  
   const sorted = [...marks].sort((a, b) => a.start - b.start);
   let pos = 0;
+  
   for (const mark of sorted) {
     if (mark.start > pos) {
       container.appendChild(document.createTextNode(text.slice(pos, mark.start)));
     }
     const slice = text.slice(mark.start, mark.end);
     if (slice.length === 0) continue;
+    
     let node: HTMLElement = document.createElement("span");
-    if (mark.attrs?.i) {
+    
+    if (mark.attrs.italic) {
       const em = document.createElement("em");
       em.appendChild(node);
       node = em;
     }
-    if (mark.attrs?.b) {
+    if (mark.attrs.bold) {
       const strong = document.createElement("strong");
       strong.appendChild(node);
       node = strong;
     }
-    if (mark.attrs?.font || mark.attrs?.fontSize) {
+    if (mark.attrs.font || mark.attrs.fontSize) {
       const span = document.createElement("span");
-      const font = mark.attrs.font as string | undefined;
-      const fontSize = mark.attrs.fontSize as number | undefined;
+      const font = mark.attrs.font;
+      const fontSize = mark.attrs.fontSize;
       if (font && font !== DEFAULT_FONT) span.style.fontFamily = font;
       if (fontSize != null && fontSize !== 16) {
         span.style.fontSize = `${fontSize}px`;
@@ -126,18 +135,19 @@ function applyTextWithMarks(
     container.appendChild(node);
     pos = mark.end;
   }
+  
   if (pos < text.length) {
     container.appendChild(document.createTextNode(text.slice(pos)));
   }
 }
 
 function renderImage(
-  node: { id: string; alt: string; assetRef: { name: string }; size: [number, number] },
+  node: Image,
   getAssetDataUrl?: (name: string) => string | null,
 ): HTMLDivElement {
   const div = document.createElement("div");
   div.setAttribute("data-type", "image");
-  div.setAttribute("data-node-id", node.id);
+  div.setAttribute("data-node-id", node.id.toString());
   div.setAttribute("contenteditable", "false");
   div.setAttribute("data-asset", node.assetRef.name);
   div.setAttribute("data-alt", node.alt);
@@ -153,12 +163,12 @@ function renderImage(
 }
 
 function renderTable(
-  node: { id: string; textRange: { start: number; end: number }; rows: number; cols: number },
-  buffer: TextBuffer,
+  node: Table,
+  buffer: { getRange: (start: number, end: number) => string },
 ): HTMLTableElement {
   const table = document.createElement("table");
   table.className = "editor-table w-full border-collapse my-2";
-  table.setAttribute("data-node-id", node.id);
+  table.setAttribute("data-node-id", node.id.toString());
   const text = buffer.getRange(node.textRange.start, node.textRange.end);
   const rows = text.split("\n");
   for (let r = 0; r < node.rows; r++) {
@@ -179,30 +189,30 @@ function renderTable(
 }
 
 function renderBlockquote(
-  block: Extract<BlockNode, { type: "blockquote" }>,
-  buffer: TextBuffer,
+  block: Blockquote,
+  doc: DomainDocument,
+  buffer: { getRange: (start: number, end: number) => string },
   getAssetDataUrl?: (name: string) => string | null,
 ): HTMLQuoteElement {
   const q = document.createElement("blockquote");
-  const fakeTree: DocumentTree = { version: 2, root: { children: [] } };
   for (const child of block.children) {
-    const el = renderBlock(child as BlockNode, fakeTree, buffer, getAssetDataUrl);
+    const el = renderBlock(child, doc, buffer, getAssetDataUrl);
     if (el) q.appendChild(el);
   }
   return q;
 }
 
 function renderList(
-  block: Extract<BlockNode, { type: "list" }>,
-  buffer: TextBuffer,
+  block: List,
+  doc: DomainDocument,
+  buffer: { getRange: (start: number, end: number) => string },
   getAssetDataUrl?: (name: string) => string | null,
 ): HTMLOListElement | HTMLUListElement {
   const tag = block.listType === "ordered" ? "ol" : "ul";
   const el = document.createElement(tag);
-  const fakeTree: DocumentTree = { version: 2, root: { children: [] } };
   for (const item of block.items) {
     const li = document.createElement("li");
-    const childEl = renderBlock(item.content as BlockNode, fakeTree, buffer, getAssetDataUrl);
+    const childEl = renderBlock(item.content, doc, buffer, getAssetDataUrl);
     if (childEl) li.appendChild(childEl);
     el.appendChild(li);
   }

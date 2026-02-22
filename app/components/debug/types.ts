@@ -4,7 +4,7 @@ export interface DebugMetric {
   id: string;
   label: string;
   value: string;
-  unit?: string;
-  severity?: DebugMetricSeverity;
-  enabled?: boolean;
+  unit?: string | undefined;
+  severity?: DebugMetricSeverity | undefined;
+  enabled?: boolean | undefined;
 }

@@ -11,19 +11,12 @@
  * A snapshot of a document at a specific point in time.
  */
 export interface DocumentVersion {
-  /** Unique identifier (UUID v4) */
   id: string;
-  /** Version number (sequential, 1-indexed) */
   versionNumber: number;
-  /** ISO 8601 timestamp when version was created */
   createdAt: string;
-  /** User-provided label for this version */
-  label?: string;
-  /** SHA-256 hash of the content */
+  label?: string | undefined;
   contentHash: string;
-  /** The text content at this version */
   content: string;
-  /** Formatting metadata */
   metadata: VersionMetadata;
 }
 
@@ -34,11 +27,9 @@ export interface VersionSummary {
   id: string;
   versionNumber: number;
   createdAt: string;
-  label?: string;
+  label?: string | undefined;
   contentHash: string;
-  /** Character count at this version */
   charCount: number;
-  /** Line count at this version */
   lineCount: number;
 }
 
@@ -127,7 +118,7 @@ export interface DiffLine {
 export interface CreateVersionRequest {
   path: string;
   content: string;
-  label?: string;
+  label?: string | undefined;
 }
 
 export interface CreateVersionResponse {
