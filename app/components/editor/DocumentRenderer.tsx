@@ -9,6 +9,9 @@ import type { Block, Paragraph, Heading, Table, Image, List, Blockquote } from "
 import type { FormattingMark } from "~/lib/domain/document/value-objects/FormattingMark";
 import { isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "~/lib/domain/document/entities";
 
+const _log = (loc: string, msg: string, data: object) => {
+  fetch('http://127.0.0.1:7242/ingest/033aa4d5-20bc-4d22-89ae-24eb7521ba4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:loc,message:msg,data,timestamp:Date.now()})}).catch(()=>{});
+};
 export function renderDocument(
   root: HTMLElement,
   doc: DomainDocument,
@@ -17,13 +20,24 @@ export function renderDocument(
   root.innerHTML = "";
   
   const buffer = doc.getBuffer();
+  const docTextLen = doc.getText().length;
   
   for (const section of doc.sections) {
     for (const block of section.children) {
       const el = renderBlock(block, doc, buffer, getAssetDataUrl);
-      if (el) root.appendChild(el);
+      if (el) {
+        root.appendChild(el);
+        if (block.type === 'paragraph') {
+          const tr = (block as { textRange?: { start: number; end: number } }).textRange;
+          const text = tr ? buffer.getRange(tr.start, tr.end) : '';
+          _log('DocumentRenderer','paragraph appended',{docTextLen,rangeStart:tr?.start,rangeEnd:tr?.end,textLen:text.length,pTextLen:(el as HTMLElement).innerText?.length});
+        }
+      }
     }
   }
+  
+  const rootTextLen = root.innerText?.length ?? 0;
+  _log('DocumentRenderer','after loop',{docTextLen,rootTextLen,rootChildCount:root.childNodes.length});
   
   if (root.childNodes.length === 0) {
     const p = document.createElement("p");

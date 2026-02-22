@@ -3,9 +3,9 @@
  * Intercepts input, applies to service, relies on context to re-render.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import { useEditorContext } from "./EditorContext";
-import { getSelectionOffsets } from "./domSelection";
+import { getSelectionOffsets, getTextContentFromDOM } from "./domSelection";
 import { renderDocument } from "../DocumentRenderer";
 
 interface ContentEditableRootProps {
@@ -16,7 +16,10 @@ interface ContentEditableRootProps {
   getAssetDataUrl?: (name: string) => string | null;
 }
 
-export function ContentEditableRoot({
+const _log = (loc: string, msg: string, data: object) => {
+  fetch('http://127.0.0.1:7242/ingest/033aa4d5-20bc-4d22-89ae-24eb7521ba4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:loc,message:msg,data,timestamp:Date.now()})}).catch(()=>{});
+};
+function ContentEditableRootInner({
   className,
   style,
   "data-testid": dataTestId,
@@ -26,6 +29,7 @@ export function ContentEditableRoot({
   const { editor, service, rootRef } = useEditorContext();
   const isComposingRef = useRef(false);
   const isApplyingChangeRef = useRef(false);
+  const handledByKeyDownRef = useRef(false);
 
   useEffect(() => {
     const render = () => {
@@ -67,9 +71,16 @@ export function ContentEditableRoot({
 
   const handleBeforeInput = useCallback(
     (e: React.FormEvent<HTMLDivElement>) => {
-      if (isComposingRef.current) return;
+      if (isComposingRef.current || handledByKeyDownRef.current) return;
 
-      const offsets = editor.getSelectionOffsets();
+      let offsets = editor.getSelectionOffsets();
+      if (!offsets && rootRef.current) {
+        const domOffsets = getSelectionOffsets(rootRef.current);
+        if (domOffsets) {
+          service.setSelectionFromOffsets(domOffsets.anchor, domOffsets.focus);
+          offsets = domOffsets;
+        }
+      }
       if (!offsets) return;
       const { anchor, focus } = offsets;
       const isCollapsed = anchor === focus;
@@ -122,7 +133,7 @@ export function ContentEditableRoot({
         return;
       }
     },
-    [editor, service],
+    [editor, service, rootRef],
   );
 
   const handleKeyDown = useCallback(
@@ -168,8 +179,55 @@ export function ContentEditableRoot({
           return;
         }
       }
+
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && !e.repeat) {
+        e.preventDefault();
+        let offsets = editor.getSelectionOffsets();
+        if (!offsets && rootRef.current) {
+          const domOffsets = getSelectionOffsets(rootRef.current);
+          if (domOffsets) {
+            service.setSelectionFromOffsets(domOffsets.anchor, domOffsets.focus);
+            offsets = domOffsets;
+          }
+        }
+        if (offsets) {
+          _log('ContentEditableRoot.handleKeyDown','insertText',{key:e.key,anchor:offsets.anchor});
+          handledByKeyDownRef.current = true;
+          isApplyingChangeRef.current = true;
+          editor.insertText(e.key);
+          const newOffset = offsets.anchor + 1;
+          service.setSelectionFromOffsets(newOffset, newOffset);
+          setTimeout(() => {
+            isApplyingChangeRef.current = false;
+            handledByKeyDownRef.current = false;
+          }, 50);
+        }
+      }
     },
-    [editor],
+    [editor, service, rootRef],
+  );
+
+  const handleInput = useCallback(
+    () => {
+      if (isApplyingChangeRef.current || handledByKeyDownRef.current) return;
+      const root = rootRef.current;
+      if (!root) return;
+      const domText = getTextContentFromDOM(root);
+      const modelText = service.getDocument()?.getText() ?? "";
+      if (domText !== modelText) {
+        _log('ContentEditableRoot.handleInput','DOM_MISMATCH_reset',{domLen:domText.length,modelLen:modelText.length});
+        isApplyingChangeRef.current = true;
+        service.newDocument();
+        const doc = service.getDocument();
+        if (doc && domText) {
+          service.setSelectionFromOffsets(0, 0);
+          service.insertText(domText);
+        }
+        service.setSelectionFromOffsets(domText.length, domText.length);
+        setTimeout(() => { isApplyingChangeRef.current = false; }, 0);
+      }
+    },
+    [service, rootRef],
   );
 
   const handleCompositionStart = useCallback(() => {
@@ -186,9 +244,11 @@ export function ContentEditableRoot({
       className={className}
       style={style}
       contentEditable
+      tabIndex={0}
       suppressContentEditableWarning
       data-testid={dataTestId}
       onBeforeInput={handleBeforeInput}
+      onInput={(e) => handleInput()}
       onKeyDown={handleKeyDown}
       onCompositionStart={handleCompositionStart}
       onCompositionEnd={handleCompositionEnd}
@@ -196,3 +256,5 @@ export function ContentEditableRoot({
     />
   );
 }
+
+export const ContentEditableRoot = memo(ContentEditableRootInner);

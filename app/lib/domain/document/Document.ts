@@ -204,7 +204,7 @@ export class Document {
     const bufPos = blockRange.start + offset;
     
     this.state.buffer.insert(bufPos, text);
-    this.shiftRangesAfter(bufPos, text.length);
+    this.shiftRangesAfter(bufPos, text.length, blockId);
     this.shiftMarksInBlockAfter(block, offset, text.length);
     
     const event = DocumentEvents.textInserted(this.state.id, blockId, offset, text);
@@ -226,7 +226,7 @@ export class Document {
     const deletedText = this.state.buffer.getRange(bufPos, bufPos + actualLength);
     
     this.state.buffer.delete(bufPos, actualLength);
-    this.shiftRangesAfter(bufPos, -actualLength);
+    this.shiftRangesAfter(bufPos, -actualLength, blockId);
     
     const event = DocumentEvents.textDeleted(this.state.id, blockId, offset, deletedText);
     this.eventsList.push(event);
@@ -568,28 +568,38 @@ export class Document {
     this.updateSectionChildren(section.id, newChildren);
   }
 
-  private shiftRangesAfter(pos: number, delta: number): void {
+  private shiftRangesAfter(pos: number, delta: number, sourceBlockId?: BlockId): void {
     if (delta === 0) return;
     
     for (const section of this.state.sections) {
       for (let i = 0; i < section.children.length; i++) {
         const block = section.children[i];
         if (!block) continue;
-        this.shiftBlockRanges(block, pos, delta, section, i);
+        this.shiftBlockRanges(block, pos, delta, section, i, sourceBlockId);
       }
     }
   }
 
-  private shiftBlockRanges(block: Block, pos: number, delta: number, section: Section, blockIndex: number): void {
+  private shiftBlockRanges(block: Block, pos: number, delta: number, section: Section, blockIndex: number, sourceBlockId?: BlockId): void {
     if (isTextBlock(block)) {
-      if (block.textRange.start >= pos) {
-        const newRange = new BufferRange(block.textRange.start + delta, block.textRange.end + delta);
+      const { start, end } = block.textRange;
+      if (delta > 0 && start === end && pos === start) {
+        // Empty block, inserting at its position: expand range to include new text
+        const newRange = new BufferRange(start, start + delta);
         const updated: Block = { ...block, textRange: newRange };
         const newChildren = [...section.children];
         newChildren[blockIndex] = updated;
         this.updateSectionChildren(section.id, newChildren);
-      } else if (block.textRange.end > pos) {
-        const newRange = new BufferRange(block.textRange.start, block.textRange.end + delta);
+      } else if (start >= pos && block.id !== sourceBlockId) {
+        // Block starts at or after insertion point, but not the block being edited: shift both start and end
+        const newRange = new BufferRange(start + delta, end + delta);
+        const updated: Block = { ...block, textRange: newRange };
+        const newChildren = [...section.children];
+        newChildren[blockIndex] = updated;
+        this.updateSectionChildren(section.id, newChildren);
+      } else if (end >= pos) {
+        // Inserting within or at the end of this block: extend the end only
+        const newRange = new BufferRange(start, end + delta);
         const updated: Block = { ...block, textRange: newRange };
         const newChildren = [...section.children];
         newChildren[blockIndex] = updated;
@@ -620,8 +630,10 @@ export class Document {
   }
 
   private shiftMarksInBlockAfter(block: TextBlock, localPos: number, delta: number): void {
-    const shiftedMarks = shiftMarksAfter(block.marks, localPos, delta);
-    const updated: Block = { ...block, marks: shiftedMarks };
+    const currentBlock = this.getBlock(block.id);
+    if (!currentBlock || !isTextBlock(currentBlock)) return;
+    const shiftedMarks = shiftMarksAfter(currentBlock.marks, localPos, delta);
+    const updated: Block = { ...currentBlock, marks: shiftedMarks };
     this.updateBlockInTree(block.id, updated);
   }
 

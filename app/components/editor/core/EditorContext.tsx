@@ -84,10 +84,8 @@ export function EditorProvider({
         service.newDocument();
         const doc = service.getDocument();
         if (doc && text) {
-          const firstBlock = doc.getFirstBlock();
-          if (firstBlock) {
-            service.insertText(text);
-          }
+          service.setSelectionFromOffsets(0, 0);
+          service.insertText(text);
         }
       },
       execFormat: (cmd: string, value?: string) => {
@@ -98,6 +96,13 @@ export function EditorProvider({
           service.toggleBold();
         } else if (cmd === "italic") {
           service.toggleItalic();
+        } else if (cmd === "font" && value !== undefined) {
+          service.formatText(TextAttributes.from({ font: value || undefined }));
+        } else if (cmd === "fontSize" && value !== undefined) {
+          const px = value ? Number.parseInt(value, 10) : 16;
+          if (!Number.isNaN(px)) {
+            service.formatText(TextAttributes.from({ fontSize: px }));
+          }
         } else if (cmd === "textAlign" && value) {
           const blockId = sel.anchor.blockId;
           const doc = service.getDocument();
@@ -115,6 +120,13 @@ export function EditorProvider({
           service.toggleBold();
         } else if (cmd === "italic") {
           service.toggleItalic();
+        } else if (cmd === "font" && value !== undefined) {
+          service.formatText(TextAttributes.from({ font: value || undefined }));
+        } else if (cmd === "fontSize" && value !== undefined) {
+          const px = value ? Number.parseInt(value.replace(/px$/i, ""), 10) : 16;
+          if (!Number.isNaN(px)) {
+            service.formatText(TextAttributes.from({ fontSize: px }));
+          }
         }
       },
       insertTable: () => {},

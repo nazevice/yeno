@@ -237,6 +237,16 @@ function findNodesForOffsets(
       return anchor !== null && focus !== null;
     }
     const el = container as HTMLElement;
+    if (el.tagName === "BR") {
+      lastNode = { node: el, offset: 0 };
+      if (anchor === null && cursor <= startOffset && startOffset <= cursor) {
+        anchor = lastNode;
+      }
+      if (focus === null && cursor <= endOffset && endOffset <= cursor) {
+        focus = { ...lastNode };
+      }
+      return anchor !== null && focus !== null;
+    }
     if (el.getAttribute?.("data-type") === "image") {
       const name = el.getAttribute("data-asset") ?? "";
       const alt = el.getAttribute("data-alt") ?? name;
@@ -257,6 +267,9 @@ function findNodesForOffsets(
     }
     for (let i = 0; i < el.childNodes.length; i++) {
       if (walkInline(el.childNodes[i]!)) return true;
+    }
+    if (nodeStart === cursor) {
+      lastNode = { node: el, offset: 0 };
     }
     return false;
   }

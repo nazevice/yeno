@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorService } from "~/lib/application/EditorService";
 import { EditorProvider } from "./core/EditorContext";
 import { ContentEditableRoot } from "./core/ContentEditableRoot";
 import { Toolbar } from "./Toolbar";
 import { renderDocument } from "./DocumentRenderer";
 import type { AssetRef } from "~/lib/domain/document/entities/Image";
+import { TextAttributes } from "~/lib/domain/document/value-objects/TextAttributes";
 import { createRangeFromOffsets } from "./core/domSelection";
+import { parseFontSizePx } from "~/lib/doc/fonts";
 
 function assetToDataUrl(asset: AssetRef | null): string | null {
   if (!asset?.bytes?.length) return null;
@@ -65,6 +67,9 @@ export function EditorShell() {
       const doc = service.getDocument();
       if (!root || !doc) return;
       
+      if (!service.selection && doc.getText().length === 0) {
+        service.setSelectionFromOffsets(0, 0);
+      }
       const hadSelection = service.selection;
       renderDocument(root, doc, getAssetDataUrl);
       
@@ -178,10 +183,8 @@ export function EditorShell() {
       service.newDocument();
       const doc = service.getDocument();
       if (doc && text) {
-        const firstBlock = doc.getFirstBlock();
-        if (firstBlock) {
-          service.insertText(text);
-        }
+        service.setSelectionFromOffsets(0, 0);
+        service.insertText(text);
       }
     },
     execFormat: (cmd: string, value?: string) => {
@@ -192,6 +195,13 @@ export function EditorShell() {
         service.toggleBold();
       } else if (cmd === "italic") {
         service.toggleItalic();
+      } else if (cmd === "font" && value !== undefined) {
+        service.formatText(TextAttributes.from({ font: value || undefined }));
+      } else if (cmd === "fontSize" && value !== undefined) {
+        const px = value ? parseFontSizePx(value) : 16;
+        if (px !== null) {
+          service.formatText(TextAttributes.from({ fontSize: px }));
+        }
       } else if (cmd === "textAlign" && value) {
         const blockId = sel.anchor.blockId;
         const doc = service.getDocument();
@@ -209,6 +219,13 @@ export function EditorShell() {
         service.toggleBold();
       } else if (cmd === "italic") {
         service.toggleItalic();
+      } else if (cmd === "font" && value !== undefined) {
+        service.formatText(TextAttributes.from({ font: value || undefined }));
+      } else if (cmd === "fontSize" && value !== undefined) {
+        const px = value ? parseFontSizePx(value) : 16;
+        if (px !== null) {
+          service.formatText(TextAttributes.from({ fontSize: px }));
+        }
       }
     },
     insertTable: () => {},
@@ -258,6 +275,22 @@ export function EditorShell() {
     mergeBlocks: () => service.mergeBlocks(),
   };
 
+  const contentEditableStylePaginated = useMemo(
+    () => ({ minHeight: pageHeightPx - 96 }),
+    [pageHeightPx],
+  );
+  const contentEditableStyleContinuous = useMemo(
+    () => ({}),
+    [],
+  );
+
+  useEffect(() => {
+    (window as unknown as { __editor?: typeof editor }).__editor = editor;
+    return () => {
+      delete (window as unknown as { __editor?: typeof editor }).__editor;
+    };
+  }, [editor]);
+
   return (
     <EditorProvider service={service} rootRef={rootRef}>
       <main className="mx-auto flex h-screen max-w-7xl flex-col gap-3 p-4 text-zinc-900">
@@ -286,7 +319,7 @@ export function EditorShell() {
               >
                 <ContentEditableRoot
                   className="editor-content p-12 outline-none"
-                  style={{ minHeight: pageHeightPx - 96 }}
+                  style={contentEditableStylePaginated}
                   getAssetDataUrl={getAssetDataUrl}
                   data-testid="editor-content"
                 />
@@ -300,6 +333,7 @@ export function EditorShell() {
               >
                 <ContentEditableRoot
                   className="editor-content p-12 outline-none"
+                  style={contentEditableStyleContinuous}
                   getAssetDataUrl={getAssetDataUrl}
                   data-testid="editor-content"
                 />
