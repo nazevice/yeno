@@ -9,9 +9,7 @@ import type { Block, Paragraph, Heading, Table, Image, List, Blockquote } from "
 import type { FormattingMark } from "~/lib/domain/document/value-objects/FormattingMark";
 import { isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "~/lib/domain/document/entities";
 
-const _log = (loc: string, msg: string, data: object) => {
-  fetch('http://127.0.0.1:7242/ingest/033aa4d5-20bc-4d22-89ae-24eb7521ba4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:loc,message:msg,data,timestamp:Date.now()})}).catch(()=>{});
-};
+
 export function renderDocument(
   root: HTMLElement,
   doc: DomainDocument,
@@ -168,11 +166,20 @@ function renderImage(
   div.setAttribute("contenteditable", "false");
   div.setAttribute("data-asset", node.assetRef.name);
   div.setAttribute("data-alt", node.alt);
+  const [w, h] = node.size;
+  if (w > 0 && h > 0) {
+    div.setAttribute("data-width", String(w));
+    div.setAttribute("data-height", String(h));
+  }
   div.className = "my-2 inline-block relative";
   const img = document.createElement("img");
   img.setAttribute("data-asset", node.assetRef.name);
   img.alt = node.alt;
   img.loading = "lazy";
+  if (w > 0 && h > 0) {
+    img.style.width = `${w}px`;
+    img.style.height = `${h}px`;
+  }
   const dataUrl = getAssetDataUrl?.(node.assetRef.name);
   if (dataUrl) img.src = dataUrl;
   div.appendChild(img);

@@ -16,9 +16,6 @@ interface ContentEditableRootProps {
   getAssetDataUrl?: (name: string) => string | null;
 }
 
-const _log = (loc: string, msg: string, data: object) => {
-  fetch('http://127.0.0.1:7242/ingest/033aa4d5-20bc-4d22-89ae-24eb7521ba4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:loc,message:msg,data,timestamp:Date.now()})}).catch(()=>{});
-};
 function ContentEditableRootInner({
   className,
   style,
@@ -191,7 +188,6 @@ function ContentEditableRootInner({
           }
         }
         if (offsets) {
-          _log('ContentEditableRoot.handleKeyDown','insertText',{key:e.key,anchor:offsets.anchor});
           handledByKeyDownRef.current = true;
           isApplyingChangeRef.current = true;
           editor.insertText(e.key);
@@ -215,7 +211,6 @@ function ContentEditableRootInner({
       const domText = getTextContentFromDOM(root);
       const modelText = service.getDocument()?.getText() ?? "";
       if (domText !== modelText) {
-        _log('ContentEditableRoot.handleInput','DOM_MISMATCH_reset',{domLen:domText.length,modelLen:modelText.length});
         isApplyingChangeRef.current = true;
         service.newDocument();
         const doc = service.getDocument();

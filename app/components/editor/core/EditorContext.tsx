@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -187,6 +188,13 @@ export function EditorProvider({
     (): EditorContextValue => ({ editor, service, rootRef }),
     [editor, service],
   );
+
+  useEffect(() => {
+    (window as unknown as { __editor?: EditorApi }).__editor = editor;
+    return () => {
+      delete (window as unknown as { __editor?: EditorApi }).__editor;
+    };
+  }, [editor]);
 
   return (
     <EditorContext.Provider value={value}>

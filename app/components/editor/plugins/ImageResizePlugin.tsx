@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { BlockId } from "~/lib/domain/shared/NodeId";
 import { useEditorContext } from "../core/EditorContext";
 import { IMAGE_BLOCK_SELECTOR } from "../core/blockUtils";
 
@@ -35,6 +36,7 @@ const ACTIVE_CLASS = "image-resize-active";
 function createResizeUI(
   block: HTMLElement,
   onBlockClick: (block: HTMLElement) => void,
+  onResizeEnd: (blockId: string, width: number, height: number) => void,
 ): (() => void) | null {
   if (block.querySelector(".image-resize-frame")) return null;
 
@@ -133,6 +135,16 @@ function createResizeUI(
         document.removeEventListener("mouseup", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        const blockId = block.getAttribute("data-node-id");
+        const w = block.getAttribute("data-width");
+        const h = block.getAttribute("data-height");
+        if (blockId && w && h) {
+          const width = Number.parseInt(w, 10);
+          const height = Number.parseInt(h, 10);
+          if (!Number.isNaN(width) && !Number.isNaN(height)) {
+            onResizeEnd(blockId, width, height);
+          }
+        }
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -166,10 +178,11 @@ function applyInitialDimensions(block: HTMLElement): void {
 }
 
 export function ImageResizePlugin() {
-  const { rootRef } = useEditorContext();
+  const { rootRef, service } = useEditorContext();
   const mountedRef = useRef<Set<HTMLElement>>(new Set());
   const teardownsRef = useRef<Map<HTMLElement, () => void>>(new Map());
   const activeBlockRef = useRef<HTMLElement | null>(null);
+  const activeBlockIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -180,8 +193,24 @@ export function ImageResizePlugin() {
       activeBlockRef.current?.classList.remove(ACTIVE_CLASS);
       if (block) {
         block.classList.add(ACTIVE_CLASS);
+        activeBlockIdRef.current = block.getAttribute("data-node-id");
+      } else {
+        activeBlockIdRef.current = null;
       }
       activeBlockRef.current = block;
+    };
+
+    const restoreActiveAfterRender = () => {
+      const id = activeBlockIdRef.current;
+      if (!id || !root) return;
+      const block = root.querySelector<HTMLElement>(`${IMAGE_BLOCK_SELECTOR}[data-node-id="${id}"]`);
+      if (block) {
+        block.classList.add(ACTIVE_CLASS);
+        activeBlockRef.current = block;
+      } else {
+        activeBlockIdRef.current = null;
+        activeBlockRef.current = null;
+      }
     };
 
     const handleClickOutside = (e: MouseEvent) => {
@@ -195,17 +224,29 @@ export function ImageResizePlugin() {
     };
 
     const scan = () => {
+      const toRemove: HTMLElement[] = [];
+      for (const block of mountedRef.current) {
+        if (!root.contains(block)) toRemove.push(block);
+      }
+      for (const block of toRemove) {
+        teardownsRef.current.get(block)?.();
+        teardownsRef.current.delete(block);
+        mountedRef.current.delete(block);
+      }
       const blocks = root.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
       for (const block of blocks) {
         applyInitialDimensions(block);
         if (!mountedRef.current.has(block)) {
           mountedRef.current.add(block);
-          const teardown = createResizeUI(block, setActiveBlock);
+          const teardown = createResizeUI(block, setActiveBlock, (blockId, width, height) => {
+            service.updateImageSize(BlockId.from(blockId), width, height);
+          });
           if (teardown) {
             teardownsRef.current.set(block, teardown);
           }
         }
       }
+      restoreActiveAfterRender();
     };
 
     scan();
@@ -213,17 +254,29 @@ export function ImageResizePlugin() {
     document.addEventListener("mousedown", handleClickOutside);
 
     const observer = new MutationObserver(() => {
+      const toRemove: HTMLElement[] = [];
+      for (const block of mountedRef.current) {
+        if (!root.contains(block)) toRemove.push(block);
+      }
+      for (const block of toRemove) {
+        teardownsRef.current.get(block)?.();
+        teardownsRef.current.delete(block);
+        mountedRef.current.delete(block);
+      }
       const blocks = root.querySelectorAll<HTMLElement>(IMAGE_BLOCK_SELECTOR);
       for (const block of blocks) {
         applyInitialDimensions(block);
         if (!mountedRef.current.has(block)) {
           mountedRef.current.add(block);
-          const teardown = createResizeUI(block, setActiveBlock);
+          const teardown = createResizeUI(block, setActiveBlock, (blockId, width, height) => {
+            service.updateImageSize(BlockId.from(blockId), width, height);
+          });
           if (teardown) {
             teardownsRef.current.set(block, teardown);
           }
         }
       }
+      restoreActiveAfterRender();
     });
     observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-type"] });
 

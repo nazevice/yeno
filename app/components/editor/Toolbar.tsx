@@ -9,10 +9,10 @@ import {
   parseFontSizePx,
 } from "~/lib/doc/fonts";
 import type { EditorApi } from "./core/EditorContext";
+import { useEditor } from "./core/EditorContext";
 import { getSelectionOffsets } from "./core/domSelection";
 
 interface ToolbarProps {
-  editor: EditorApi | null;
   onInsertImage: () => void;
   pageWidthPx: number;
   pageHeightPx: number;
@@ -75,13 +75,13 @@ function getSelectionAlignInfo(): (typeof TEXT_ALIGN_OPTIONS)[number]["value"] |
 }
 
 export function Toolbar({
-  editor,
   onInsertImage,
   pageWidthPx,
   pageHeightPx,
   onPageWidthChange,
   onPageHeightChange,
 }: ToolbarProps) {
+  const editor = useEditor();
   const [currentFont, setCurrentFont] = useState(DEFAULT_FONT);
   const [currentFontSize, setCurrentFontSize] = useState(DEFAULT_FONT_SIZE);
   const [currentAlign, setCurrentAlign] = useState<

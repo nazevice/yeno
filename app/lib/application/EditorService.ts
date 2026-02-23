@@ -1,4 +1,4 @@
-import type { DocumentId, BlockId, SectionId } from "../domain/shared/NodeId";
+import type { BlockId, DocumentId, SectionId } from "../domain/shared/NodeId";
 import { Document } from "../domain/document/Document";
 import type { DocumentRepository } from "../domain/document/DocumentRepository";
 import type { Block } from "../domain/document/entities";
@@ -322,23 +322,36 @@ export class EditorService {
   }
 
   setSelection(selection: Selection): void {
+    const prev = this.selectionManager.selection;
+    if (prev && selection && prev.anchor.blockId === selection.anchor.blockId &&
+        prev.anchor.offset === selection.anchor.offset && prev.focus.blockId === selection.focus.blockId &&
+        prev.focus.offset === selection.focus.offset) {
+      return;
+    }
+    if (!prev && !selection) return;
     this.selectionManager.setSelection(selection);
     this._notify();
   }
 
   setSelectionFromOffsets(anchor: number, focus: number): void {
     if (!this.document) return;
-    
+
     const anchorResolved = this.document.findBlockAtPosition(anchor);
     const focusResolved = this.document.findBlockAtPosition(focus);
-    
+
     if (!anchorResolved || !focusResolved) return;
-    
-    this.selectionManager.setSelection({
+
+    const newSel = {
       anchor: { blockId: anchorResolved.block.id, offset: anchorResolved.localOffset },
       focus: { blockId: focusResolved.block.id, offset: focusResolved.localOffset },
-    });
-    
+    };
+    const prev = this.selectionManager.selection;
+    if (prev && prev.anchor.blockId === newSel.anchor.blockId &&
+        prev.anchor.offset === newSel.anchor.offset && prev.focus.blockId === newSel.focus.blockId &&
+        prev.focus.offset === newSel.focus.offset) {
+      return;
+    }
+    this.selectionManager.setSelection(newSel);
     this._notify();
   }
 
@@ -356,6 +369,17 @@ export class EditorService {
     this._pushHistory();
     
     this.document.insertImageBlock(sel.anchor.blockId, assetRef, alt, size);
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  updateImageSize(blockId: BlockId, width: number, height: number): void {
+    if (!this.document) return;
+    
+    this._pushHistory();
+    
+    this.document.setImageSize(blockId, [width, height]);
     
     this._isDirty = true;
     this._notify();

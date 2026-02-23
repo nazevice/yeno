@@ -465,6 +465,15 @@ export class Document {
     this.state.modifiedAt = Date.now();
   }
 
+  setImageSize(blockId: BlockId, size: readonly [number, number]): void {
+    const block = this.getBlock(blockId);
+    if (!block || !isImage(block)) return;
+    
+    const updatedBlock = Image.withSize(block, size);
+    this.updateBlockInTree(blockId, updatedBlock);
+    this.state.modifiedAt = Date.now();
+  }
+
   insertBlock(sectionId: SectionId, index: number, block: Block): BlockInserted | null {
     const section = this.getSection(sectionId);
     if (!section) return null;
