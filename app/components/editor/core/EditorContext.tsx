@@ -113,6 +113,13 @@ export function EditorProvider({
               doc.setTextAlign(blockId, value as "left" | "center" | "right" | "justify");
             }
           }
+        } else if (cmd === "heading" && value) {
+          const level = Number(value) as 1 | 2 | 3;
+          if (level >= 1 && level <= 3) {
+            service.setBlockType("heading", level);
+          }
+        } else if (cmd === "paragraph") {
+          service.setBlockType("paragraph");
         }
       },
       execFormatWithSelection: (anchor: number, focus: number, cmd: string, value?: string) => {

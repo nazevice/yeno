@@ -23,19 +23,24 @@ interface SerializableSection {
 }
 
 function serializeBlock(block: unknown, doc: Document): SerializableBlock {
-  const b = block as { id: BlockIdType; type: string; textRange: { start: number; end: number; length: number }; marks: unknown[] };
+  const b = block as { id: BlockIdType; type: string; textRange?: { start: number; end: number; length: number }; marks: unknown[] };
   const result: SerializableBlock = {
     id: b.id as string,
     type: b.type,
-    textRange: {
-      start: b.textRange.start,
-      end: b.textRange.end,
-      length: b.textRange.length,
-    },
-    marks: b.marks.length,
+    textRange: b.textRange
+      ? {
+          start: b.textRange.start,
+          end: b.textRange.end,
+          length: b.textRange.length,
+        }
+      : { start: 0, end: 0, length: 0 },
+    marks: b.marks?.length ?? 0,
   };
 
-  if (b.type === "table") {
+  if (b.type === "image") {
+    const imgBlock = block as { assetRef: { name: string }; alt: string; size: [number, number] };
+    result.text = `Image: ${imgBlock.assetRef?.name ?? "unknown"} (${imgBlock.size?.[0] ?? 0}x${imgBlock.size?.[1] ?? 0})`;
+  } else if (b.type === "table") {
     const tableBlock = block as { rows: unknown[] };
     result.children = tableBlock.rows.map((row: unknown) => {
       const r = row as { cells: unknown[] };

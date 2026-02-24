@@ -290,6 +290,30 @@ export function Toolbar({
       </div>
       <span className="toolbar-divider" />
 
+      {/* Block type - Paragraph/Heading */}
+      <div className="toolbar-group">
+        <select
+          className="toolbar-select min-w-[6rem]"
+          onMouseDown={saveSelectionForFormat}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "paragraph") {
+              run((editor) => editor.execFormat("paragraph"));
+            } else if (value.startsWith("h")) {
+              const level = value.slice(1);
+              run((editor) => editor.execFormat("heading", level));
+            }
+          }}
+          title="Block type"
+        >
+          <option value="paragraph">Paragraph</option>
+          <option value="h1">Heading 1</option>
+          <option value="h2">Heading 2</option>
+          <option value="h3">Heading 3</option>
+        </select>
+      </div>
+      <span className="toolbar-divider" />
+
       {/* Style - save selection on mousedown so format applies to selected text after dropdown closes */}
       <div className="toolbar-group">
         <select
