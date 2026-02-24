@@ -1,6 +1,7 @@
 import type { SectionId, BlockId } from "../../shared/NodeId";
 import type { Block } from "./index";
 import type { SectionLayout } from "../value-objects/SectionLayout";
+import { Table } from "./Table";
 
 export interface Section {
   readonly id: SectionId;
@@ -38,6 +39,10 @@ export namespace Section {
         for (const item of block.items) {
           if (item.content.id === blockId) return item.content;
         }
+      }
+      if (block.type === "table") {
+        const found = Table.findBlockById(block, blockId);
+        if (found) return found;
       }
     }
     return undefined;

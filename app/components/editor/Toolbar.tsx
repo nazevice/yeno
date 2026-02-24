@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   clampFontSizePx,
@@ -74,6 +74,36 @@ function getSelectionAlignInfo(): (typeof TEXT_ALIGN_OPTIONS)[number]["value"] |
   return "default";
 }
 
+type SelectionStyle = {
+  font: string;
+  fontSize: string;
+  align: ReturnType<typeof getSelectionAlignInfo>;
+};
+
+const DEFAULT_SELECTION_STYLE: SelectionStyle = {
+  font: DEFAULT_FONT,
+  fontSize: DEFAULT_FONT_SIZE,
+  align: "default",
+};
+
+let cachedSelectionStyle: SelectionStyle = DEFAULT_SELECTION_STYLE;
+
+function getSelectionStyleSnapshot(): SelectionStyle {
+  const fontInfo = getSelectionFontInfo();
+  const align = getSelectionAlignInfo();
+  const font = fontInfo?.font ?? DEFAULT_FONT;
+  const fontSize = fontInfo?.fontSize ?? DEFAULT_FONT_SIZE;
+  if (
+    cachedSelectionStyle.font === font &&
+    cachedSelectionStyle.fontSize === fontSize &&
+    cachedSelectionStyle.align === align
+  ) {
+    return cachedSelectionStyle;
+  }
+  cachedSelectionStyle = { font, fontSize, align };
+  return cachedSelectionStyle;
+}
+
 export function Toolbar({
   onInsertImage,
   pageWidthPx,
@@ -82,14 +112,31 @@ export function Toolbar({
   onPageHeightChange,
 }: ToolbarProps) {
   const editor = useEditor();
-  const [currentFont, setCurrentFont] = useState(DEFAULT_FONT);
-  const [currentFontSize, setCurrentFontSize] = useState(DEFAULT_FONT_SIZE);
-  const [currentAlign, setCurrentAlign] = useState<
-    (typeof TEXT_ALIGN_OPTIONS)[number]["value"] | "default"
-  >("default");
-  const [isFontSizeMixed, setIsFontSizeMixed] = useState(false);
+  const selectionStyle = useSyncExternalStore(
+    (callback) => {
+      if (!editor) return () => {};
+      const unregister = editor.registerUpdateListener(callback);
+      document.addEventListener("selectionchange", callback);
+      return () => {
+        unregister();
+        document.removeEventListener("selectionchange", callback);
+      };
+    },
+    getSelectionStyleSnapshot,
+    () => DEFAULT_SELECTION_STYLE,
+  );
+  const { font: currentFont, fontSize: currentFontSize, align: currentAlign } = selectionStyle;
+  const isPreset = FONT_SIZE_OPTIONS.some(
+    (o) => o.value === currentFontSize && o.value !== "custom",
+  );
+  const isFontSizeMixed = false;
   const [isCustomFontSize, setIsCustomFontSize] = useState(false);
   const [customFontSizePx, setCustomFontSizePx] = useState("");
+  const parsedSelectionPx = (() => {
+    const px = Number.parseInt(currentFontSize, 10);
+    return Number.isNaN(px) ? "" : String(px);
+  })();
+  const displayCustomFontSize = customFontSizePx || (!isPreset ? parsedSelectionPx : "");
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showSizePopover, setShowSizePopover] = useState(false);
@@ -99,33 +146,6 @@ export function Toolbar({
   const [tableIncludeHeaders, setTableIncludeHeaders] = useState(true);
   const insertMenuRef = useRef<HTMLDivElement>(null);
   const sizePopoverRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!editor) return;
-    const updateFromSelection = () => {
-      const info = getSelectionFontInfo();
-      if (info) {
-        setCurrentFont((prev) => (info.font === prev ? prev : info.font));
-        setCurrentFontSize((prev) => (info.fontSize === prev ? prev : info.fontSize));
-        const isPreset = FONT_SIZE_OPTIONS.some(
-          (o) => o.value === info.fontSize && o.value !== "custom",
-        );
-        setIsCustomFontSize(!isPreset && info.fontSize !== DEFAULT_FONT_SIZE);
-        if (!isPreset && info.fontSize !== DEFAULT_FONT_SIZE) {
-          const px = Number.parseInt(info.fontSize, 10);
-          if (!Number.isNaN(px)) setCustomFontSizePx(String(px));
-        }
-      }
-      const align = getSelectionAlignInfo();
-      setCurrentAlign((prev) => (align === prev ? prev : align));
-    };
-    const unregister = editor.registerUpdateListener(updateFromSelection);
-    document.addEventListener("selectionchange", updateFromSelection);
-    return () => {
-      unregister();
-      document.removeEventListener("selectionchange", updateFromSelection);
-    };
-  }, [editor]);
 
   const run = (fn: (editor: EditorApi) => void) => {
     if (!editor) return;
@@ -155,6 +175,8 @@ export function Toolbar({
   const onFontSizeChange = (value: string) => {
     if (value === "custom") {
       setIsCustomFontSize(true);
+      const px = Number.parseInt(currentFontSize, 10);
+      setCustomFontSizePx(Number.isNaN(px) ? "" : String(px));
       return;
     }
     setIsCustomFontSize(false);
@@ -171,14 +193,15 @@ export function Toolbar({
   };
 
   const onCustomFontSizeApply = () => {
-    const px = parseFontSizePx(customFontSizePx);
+    const px = parseFontSizePx(displayCustomFontSize);
     if (px === null) {
       setIsCustomFontSize(false);
+      setCustomFontSizePx("");
       return;
     }
     const value = `${clampFontSizePx(px)}px`;
     setIsCustomFontSize(false);
-    setCurrentFontSize(value);
+    setCustomFontSizePx("");
     run((editor) => {
       const sel = savedSelectionRef.current;
       if (sel) {
@@ -192,8 +215,8 @@ export function Toolbar({
 
   const onInsertTable = () => {
     run((e) => {
-      e.focus();
       e.insertTable(tableRows, tableCols, tableIncludeHeaders);
+      e.focus();
     });
     setShowTablePicker(false);
   };
@@ -305,14 +328,14 @@ export function Toolbar({
               </option>
             ))}
           </select>
-          {isCustomFontSize && (
+          {(isCustomFontSize || !isPreset) && (
             <>
               <input
                 type="number"
                 min={8}
                 max={96}
-                value={customFontSizePx}
-                onChange={(e) => setCustomFontSizePx(e.target.value)}
+                value={displayCustomFontSize}
+                onChange={(e) => setCustomFontSizePx(e.target.value || "")}
                 onKeyDown={(e) => e.key === "Enter" && onCustomFontSizeApply()}
                 onBlur={onCustomFontSizeApply}
                 className="h-8 w-12 rounded-lg border-0 bg-zinc-100/80 px-1.5 text-center text-[12px] text-zinc-700 hover:bg-zinc-100"
@@ -372,6 +395,7 @@ export function Toolbar({
             if (showInsertMenu) setShowTablePicker(false);
           }}
           title="Insert"
+          data-testid="insert-button"
         >
           Insert
         </button>
@@ -427,8 +451,10 @@ export function Toolbar({
                   <span className="text-zinc-500">Header row</span>
                 </label>
                 <button
+                  type="button"
                   className="w-full rounded-lg bg-zinc-900 py-2 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800"
-                  onClick={() => {
+                  onMouseDown={(e) => {
+                    e.preventDefault();
                     onInsertTable();
                     setShowInsertMenu(false);
                     setShowTablePicker(false);

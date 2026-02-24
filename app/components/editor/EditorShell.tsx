@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { EditorService } from "~/lib/application/EditorService";
 import { EditorProvider, useEditor } from "./core/EditorContext";
@@ -8,6 +8,7 @@ import { renderDocument } from "./DocumentRenderer";
 import type { AssetRef } from "~/lib/domain/document/entities/Image";
 import { createRangeFromOffsets } from "./core/domSelection";
 import { ImageResizePlugin } from "./plugins/ImageResizePlugin";
+import { TablePlugin } from "./plugins/TablePlugin";
 
 function assetToDataUrl(asset: AssetRef | null): string | null {
   if (!asset?.bytes?.length) return null;
@@ -73,15 +74,22 @@ const ImageInput = forwardRef<
 function EditorFooter({
   currentPage,
   pageCount,
+  service,
 }: {
   currentPage: number;
   pageCount: number;
+  service: EditorService;
 }) {
   const editor = useEditor();
+  const charCount = useSyncExternalStore(
+    (cb) => service.subscribe(cb),
+    () => editor?.getTextContent().length ?? 0,
+    () => editor?.getTextContent().length ?? 0,
+  );
   return (
     <div className="flex items-center justify-between text-xs text-zinc-500">
       <span>{`Page ${currentPage} of ${pageCount}`}</span>
-      <span>{editor?.getTextContent().length ?? 0} characters</span>
+      <span>{charCount} characters</span>
     </div>
   );
 }
@@ -249,6 +257,7 @@ export function EditorShell() {
   return (
     <EditorProvider service={service} rootRef={rootRef}>
       <ImageResizePlugin />
+      <TablePlugin />
       <main className="mx-auto flex h-screen max-w-7xl flex-col gap-3 p-4 text-zinc-900">
         <Toolbar
           onInsertImage={onInsertImage}
@@ -262,6 +271,7 @@ export function EditorShell() {
           <div
             ref={paginatedContainerRef}
             className="h-full overflow-auto bg-zinc-100"
+            data-testid="editor-scroll-container"
           >
             <div
               className="mx-auto bg-white shadow-lg"
@@ -277,7 +287,7 @@ export function EditorShell() {
           </div>
         </div>
 
-        <EditorFooter currentPage={currentPage} pageCount={pageCount} />
+        <EditorFooter currentPage={currentPage} pageCount={pageCount} service={service} />
 
         <EditorImageInput
           ref={fileInputRef}

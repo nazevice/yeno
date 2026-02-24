@@ -6,6 +6,7 @@ import { TextAttributes } from "../domain/document/value-objects/TextAttributes"
 import type { TextAlign } from "../domain/document/value-objects/TextAlign";
 import type { SectionLayout } from "../domain/document/value-objects/SectionLayout";
 import type { AssetRef } from "../domain/document/entities/Image";
+import { isTable } from "../domain/document/entities";
 import type { DocumentEvents } from "../domain/document/events";
 import { HistoryManager } from "./HistoryManager";
 import { SelectionManager, type Selection } from "./SelectionManager";
@@ -393,7 +394,17 @@ export class EditorService {
     
     this._pushHistory();
     
-    this.document.insertTableBlock(sel.anchor.blockId, rows, cols);
+    const event = this.document.insertTableBlock(sel.anchor.blockId, rows, cols);
+    
+    if (event && isTable(event.block)) {
+      const firstCell = event.block.rows[0]?.cells[0];
+      const firstPara = firstCell?.children[0];
+      const blockId = firstPara?.id ?? event.block.id;
+      this.selectionManager.setSelection({
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 0 },
+      });
+    }
     
     this._isDirty = true;
     this._notify();

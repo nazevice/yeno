@@ -5,7 +5,7 @@ import { BufferRange } from "../../domain/document/value-objects/BufferRange";
 import { FormattingMark } from "../../domain/document/value-objects/FormattingMark";
 import { TextAttributes } from "../../domain/document/value-objects/TextAttributes";
 import { Section } from "../../domain/document/entities/Section";
-import type { Block, Paragraph, Heading } from "../../domain/document/entities";
+import type { Block, Paragraph, Heading, Table, TableRow, TableCell } from "../../domain/document/entities";
 import type { FormattingMarkData } from "../../domain/document/value-objects/FormattingMark";
 import { BlockId, SectionId, DocumentId } from "../../domain/shared/NodeId";
 
@@ -76,6 +76,25 @@ export class DocumentMapper {
         id: BlockId.from(hData.id),
         textRange: new BufferRange(hData.textRange.start, hData.textRange.end),
         marks: hData.marks?.map(m => DocumentMapper.markFromData(m.toJSON())) ?? [],
+      } as Block;
+    }
+    if (data.type === "table") {
+      const tData = data as Table;
+      const rows = (tData.rows ?? []).map((row: TableRow) => ({
+        cells: (row.cells ?? []).map((cell: TableCell) => ({
+          id: BlockId.from(cell.id),
+          textRange: new BufferRange(cell.textRange.start, cell.textRange.end),
+          children: (cell.children ?? []).map((ch: Paragraph | Heading) =>
+            DocumentMapper.blockFromData(ch as Block),
+          ),
+        })),
+      }));
+      return {
+        ...tData,
+        id: BlockId.from(tData.id),
+        textRange: new BufferRange(tData.textRange.start, tData.textRange.end),
+        rows,
+        colWidths: tData.colWidths ?? [],
       } as Block;
     }
     return { ...data, id: BlockId.from(data.id) } as Block;

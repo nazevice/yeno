@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useEffect, useRef } from "react";
 import { useEditorContext } from "./EditorContext";
-import { getSelectionOffsets, getTextContentFromDOM } from "./domSelection";
+import { getSelectionOffsets, getTextContentFromDOM, createRangeFromOffsets } from "./domSelection";
 import { renderDocument } from "../DocumentRenderer";
 
 interface ContentEditableRootProps {
@@ -27,13 +27,39 @@ function ContentEditableRootInner({
   const isComposingRef = useRef(false);
   const isApplyingChangeRef = useRef(false);
   const handledByKeyDownRef = useRef(false);
+  const handledByBeforeInputRef = useRef(false);
+
+  useEffect(() => {
+    rootRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const render = () => {
       const root = rootRef.current;
       const doc = service.getDocument();
       if (!root || !doc) return;
+      const hadSelection = service.selection;
       renderDocument(root, doc, getAssetDataUrl);
+      if (hadSelection) {
+        const offsets = service.selection;
+        if (offsets) {
+          const block = doc.getBlock(offsets.anchor.blockId);
+          if (block) {
+            const range = doc.getBlockRange(offsets.anchor.blockId);
+            if (range) {
+              const anchor = range.start + offsets.anchor.offset;
+              const focus = range.start + offsets.focus.offset;
+              const domRange = createRangeFromOffsets(root, anchor, focus);
+              if (domRange) {
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(domRange);
+              }
+            }
+          }
+        }
+        root.focus();
+      }
     };
 
     const unsub = service.subscribe(render);
@@ -93,11 +119,15 @@ function ContentEditableRootInner({
 
       if (inputType === "insertText" || inputType === "insertCompositionText") {
         e.preventDefault();
+        handledByBeforeInputRef.current = true;
         isApplyingChangeRef.current = true;
         editor.insertText(data);
         const newOffset = anchor + data.length;
         service.setSelectionFromOffsets(newOffset, newOffset);
-        setTimeout(() => { isApplyingChangeRef.current = false; }, 50);
+        setTimeout(() => {
+          isApplyingChangeRef.current = false;
+          handledByBeforeInputRef.current = false;
+        }, 50);
         return;
       }
 
@@ -178,7 +208,9 @@ function ContentEditableRootInner({
       }
 
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && !e.repeat) {
+        if (handledByBeforeInputRef.current) return;
         e.preventDefault();
+        handledByKeyDownRef.current = true;
         let offsets = editor.getSelectionOffsets();
         if (!offsets && rootRef.current) {
           const domOffsets = getSelectionOffsets(rootRef.current);
@@ -188,7 +220,6 @@ function ContentEditableRootInner({
           }
         }
         if (offsets) {
-          handledByKeyDownRef.current = true;
           isApplyingChangeRef.current = true;
           editor.insertText(e.key);
           const newOffset = offsets.anchor + 1;
@@ -197,6 +228,8 @@ function ContentEditableRootInner({
             isApplyingChangeRef.current = false;
             handledByKeyDownRef.current = false;
           }, 50);
+        } else {
+          handledByKeyDownRef.current = false;
         }
       }
     },
@@ -242,9 +275,9 @@ function ContentEditableRootInner({
       tabIndex={0}
       suppressContentEditableWarning
       data-testid={dataTestId}
-      onBeforeInput={handleBeforeInput}
+      onBeforeInputCapture={handleBeforeInput}
       onInput={(e) => handleInput()}
-      onKeyDown={handleKeyDown}
+      onKeyDownCapture={handleKeyDown}
       onCompositionStart={handleCompositionStart}
       onCompositionEnd={handleCompositionEnd}
       onPaste={onPaste}

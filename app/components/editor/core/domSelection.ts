@@ -1,5 +1,6 @@
 import { toImageToken } from "~/lib/doc/imageToken";
 import { getBlockTextContent, getPaginateableBlocks } from "./blockUtils";
+import { TABLE_CELL_SEPARATOR } from "~/lib/domain/document/entities/Table";
 
 export interface OffsetPoints {
   anchor: { node: Node; offset: number };
@@ -16,6 +17,11 @@ export function getTextContentFromDOM(root: HTMLElement): string {
   return parts.join("\n");
 }
 
+function getTableFromBlock(block: HTMLElement): HTMLTableElement | null {
+  if (block.tagName === "TABLE") return block as HTMLTableElement;
+  return block.querySelector("table.editor-table");
+}
+
 function getBlockTextFromElement(block: HTMLElement): string {
   if (block.getAttribute?.("data-type") === "image") {
     const name = block.getAttribute("data-asset") ?? "";
@@ -26,22 +32,19 @@ function getBlockTextFromElement(block: HTMLElement): string {
     const height = h ? Number.parseInt(h, 10) : undefined;
     return toImageToken(name, alt, width, height);
   }
-  if (block.tagName === "TABLE") {
-    return getTableTextContent(block as HTMLTableElement);
-  }
+  const table = getTableFromBlock(block);
+  if (table) return getTableTextContent(table);
   return getBlockTextContent(block);
 }
 
 function getTableTextContent(table: HTMLTableElement): string {
-  const rows: string[] = [];
+  const cells: string[] = [];
   for (const tr of table.rows) {
-    const cells: string[] = [];
     for (const cell of tr.cells) {
       cells.push(getBlockTextContent(cell as HTMLElement));
     }
-    rows.push(cells.join("\t"));
   }
-  return rows.join("\n");
+  return cells.join(TABLE_CELL_SEPARATOR);
 }
 
 
@@ -78,16 +81,17 @@ function countTextLength(root: HTMLElement, range: Range): number {
       count += tokenLen;
       return;
     }
-    if (block.tagName === "TABLE") {
-      const table = block as HTMLTableElement;
-      for (let ri = 0; ri < table.rows.length; ri++) {
-        const row = table.rows[ri]!;
-        for (let ci = 0; ci < row.cells.length; ci++) {
-          walkInline(row.cells[ci]!);
+    const table = getTableFromBlock(block);
+    if (table) {
+      let cellIndex = 0;
+      const totalCells = Array.from(table.rows).reduce((sum, r) => sum + r.cells.length, 0);
+      for (const row of table.rows) {
+        for (const cell of row.cells) {
+          walkInline(cell);
           if (done) return;
-          if (ci < row.cells.length - 1) count += 1;
+          if (cellIndex < totalCells - 1) count += 1;
+          cellIndex += 1;
         }
-        if (ri < table.rows.length - 1) count += 1;
       }
       return;
     }
@@ -206,15 +210,16 @@ function findNodesForOffsets(
       }
       return anchor !== null && focus !== null;
     }
-    if (block.tagName === "TABLE") {
-      const table = block as HTMLTableElement;
-      for (let ri = 0; ri < table.rows.length; ri++) {
-        const row = table.rows[ri]!;
-        for (let ci = 0; ci < row.cells.length; ci++) {
-          if (walkInline(row.cells[ci]!)) return true;
-          if (ci < row.cells.length - 1) cursor += 1;
+    const table = getTableFromBlock(block);
+    if (table) {
+      let cellIndex = 0;
+      const totalCells = Array.from(table.rows).reduce((sum, r) => sum + r.cells.length, 0);
+      for (const row of table.rows) {
+        for (const cell of row.cells) {
+          if (walkInline(cell)) return true;
+          if (cellIndex < totalCells - 1) cursor += 1;
+          cellIndex += 1;
         }
-        if (ri < table.rows.length - 1) cursor += 1;
       }
       return false;
     }

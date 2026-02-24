@@ -7,12 +7,13 @@ import type { TextAlign } from "./value-objects/TextAlign";
 import { TextBuffer } from "./buffer/TextBuffer";
 import type { TextBufferContent } from "./buffer/TextBufferTypes";
 import { Section } from "./entities/Section";
-import type { Paragraph } from "./entities/Paragraph";
 import type { Heading } from "./entities/Heading";
 import type { Block, TextBlock } from "./entities";
 import { isTextBlock, isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "./entities";
 import { Image, type AssetRef } from "./entities/Image";
-import { Table } from "./entities/Table";
+import { Table, TableRow, TableCell, TABLE_CELL_SEPARATOR } from "./entities/Table";
+import { Paragraph } from "./entities/Paragraph";
+import type { TableCellChild } from "./entities/Table";
 import { DocumentEvents } from "./events";
 import type { TextInserted, TextDeleted, BlockSplit, BlocksMerged, BlockInserted, BlockDeleted, BlockMoved, TextFormatted, BlockTypeChanged, SectionLayoutChanged } from "./events";
 import type { DocumentSnapshot, DocumentTree } from "./DocumentSnapshot";
@@ -175,10 +176,22 @@ export class Document {
       }
     } else if (isTable(block)) {
       if (bufferOffset >= block.textRange.start && bufferOffset <= block.textRange.end) {
-        return {
-          block,
-          localOffset: bufferOffset - block.textRange.start,
-        };
+        for (const cell of Table.iterCells(block)) {
+          if (bufferOffset >= cell.textRange.start && bufferOffset <= cell.textRange.end) {
+            for (const child of cell.children) {
+              if (bufferOffset >= child.textRange.start && bufferOffset <= child.textRange.end) {
+                return {
+                  block: child,
+                  localOffset: bufferOffset - child.textRange.start,
+                };
+              }
+            }
+            const firstChild = cell.children[0];
+            if (firstChild) {
+              return { block: firstChild, localOffset: firstChild.textRange.length };
+            }
+          }
+        }
       }
     } else if (isImage(block)) {
       if (bufferOffset === block.bufferPosition) {
@@ -205,30 +218,12 @@ export class Document {
     const blockRange = block.textRange;
     const bufPos = blockRange.start + offset;
     
-    console.log('Document.insertText', { 
-      text: JSON.stringify(text), 
-      offset, 
-      blockRange: `[${blockRange.start}, ${blockRange.end}]`, 
-      bufPos,
-      bufferBefore: JSON.stringify(this.state.buffer.getText())
-    });
-    
     this.state.buffer.insert(bufPos, text);
-    
-    console.log('Document.insertText AFTER buffer.insert', { 
-      bufferAfter: JSON.stringify(this.state.buffer.getText())
-    });
-    
     this.shiftRangesAfter(bufPos, text.length, blockId);
     
-    // Verify the block was updated
-    const updatedBlock = this.getBlock(blockId);
-    console.log('Document.insertText AFTER shiftRangesAfter', { 
-      newRange: updatedBlock && isTextBlock(updatedBlock) ? `[${updatedBlock.textRange.start}, ${updatedBlock.textRange.end}]` : 'not found',
-      textInRange: updatedBlock && isTextBlock(updatedBlock) ? JSON.stringify(this.state.buffer.getRange(updatedBlock.textRange.start, updatedBlock.textRange.end)) : 'n/a'
-    });
-    
-    this.shiftMarksInBlockAfter(block, offset, text.length);
+    if (isTextBlock(block)) {
+      this.shiftMarksInBlockAfter(block, offset, text.length);
+    }
     
     const event = DocumentEvents.textInserted(this.state.id, blockId, offset, text);
     this.eventsList.push(event);
@@ -534,22 +529,31 @@ export class Document {
     if (!afterBlockRange) return null;
     
     const insertPos = afterBlockRange.end;
-    const blockId = BlockId.create();
-    
-    const tableRows: string[] = [];
-    for (let r = 0; r < rows; r++) {
-      const rowCells: string[] = [];
-      for (let c = 0; c < cols; c++) {
-        rowCells.push("");
-      }
-      tableRows.push(rowCells.join("\t"));
-    }
-    const tableText = "\n" + tableRows.join("\n");
+    const tableId = BlockId.create();
+    const colWidths = Array.from({ length: cols }, () => 100);
+    const numCells = rows * cols;
+    const cellContents = Array.from({ length: numCells }, () => "");
+    const tableText = "\n" + cellContents.join(TABLE_CELL_SEPARATOR);
     
     this.state.buffer.insert(insertPos, tableText);
     
+    let bufPos = insertPos + 1;
+    const tableRows: TableRow[] = [];
+    for (let r = 0; r < rows; r++) {
+      const cells: TableCell[] = [];
+      for (let c = 0; c < cols; c++) {
+        const cellId = BlockId.create();
+        const paraId = BlockId.create();
+        const cellRange = new BufferRange(bufPos, bufPos);
+        const paragraph = Paragraph.create(paraId, cellRange, []);
+        cells.push(TableCell.create(cellId, cellRange, [paragraph]));
+        bufPos += 1;
+      }
+      tableRows.push(TableRow.create(cells));
+    }
+    
     const textRange = new BufferRange(insertPos + 1, insertPos + tableText.length);
-    const tableBlock = Table.create(blockId, textRange, rows, cols);
+    const tableBlock = Table.create(tableId, textRange, tableRows, colWidths);
     
     this.shiftRangesAfter(insertPos, tableText.length, afterBlockId);
     
@@ -690,12 +694,49 @@ export class Document {
 
   private updateBlockInTree(blockId: BlockId, updatedBlock: Block): void {
     const location = this.findSectionAndBlockIndex(blockId);
-    if (!location) return;
-    
-    const { section, blockIndex } = location;
-    const newChildren = [...section.children];
-    newChildren[blockIndex] = updatedBlock;
-    this.updateSectionChildren(section.id, newChildren);
+    if (location) {
+      const { section, blockIndex } = location;
+      const newChildren = [...section.children];
+      newChildren[blockIndex] = updatedBlock;
+      this.updateSectionChildren(section.id, newChildren);
+      return;
+    }
+    const tableLocation = this.findTableContainingBlock(blockId);
+    if (tableLocation) {
+      const { section, blockIndex, table } = tableLocation;
+      const newRows = table.rows.map((row) =>
+        TableRow.create(
+          row.cells.map((cell) =>
+            TableCell.withChildren(
+              cell,
+              cell.children.map((ch) => (ch.id === blockId ? (updatedBlock as TableCellChild) : ch)),
+            ),
+          ),
+        ),
+      );
+      const updatedTable = Table.withRows(table, newRows);
+      const newChildren = [...section.children];
+      newChildren[blockIndex] = updatedTable;
+      this.updateSectionChildren(section.id, newChildren);
+    }
+  }
+
+  private findTableContainingBlock(blockId: BlockId): {
+    section: Section;
+    blockIndex: number;
+    table: Table;
+  } | null {
+    for (let si = 0; si < this.state.sections.length; si++) {
+      const section = this.state.sections[si];
+      if (!section) continue;
+      for (let bi = 0; bi < section.children.length; bi++) {
+        const block = section.children[bi];
+        if (block?.type === "table" && Table.findBlockById(block, blockId)) {
+          return { section, blockIndex: bi, table: block };
+        }
+      }
+    }
+    return null;
   }
 
   private shiftRangesAfter(pos: number, delta: number, sourceBlockId?: BlockId): void {
@@ -743,35 +784,64 @@ export class Document {
       const { start, end } = block.textRange;
       const isSourceBlock = block.id === sourceBlockId;
       
-      console.log('computeShiftedBlock', { start, end, pos, delta, isSourceBlock, case: null });
-      
       if (delta > 0 && start === end && pos === start) {
-        // Empty block, inserting at its position: expand range to include new text
-        console.log('computeShiftedBlock', { case: 'empty-block-expansion', newEnd: start + delta });
         return { ...block, textRange: new BufferRange(start, start + delta) };
       } else if (!isSourceBlock && start >= pos) {
-        // Block starts at or after insertion point, and is not the source block: shift both start and end
-        console.log('computeShiftedBlock', { case: 'shift-both', newStart: start + delta, newEnd: end + delta });
         return { ...block, textRange: new BufferRange(start + delta, end + delta) };
       } else if (end >= pos) {
-        // Inserting within or at the end of this block: extend the end only
-        console.log('computeShiftedBlock', { case: 'extend-end', newEnd: end + delta });
         return { ...block, textRange: new BufferRange(start, end + delta) };
-      } else {
-        console.log('computeShiftedBlock', { case: 'no-match' });
       }
     } else if (isImage(block)) {
       if (block.bufferPosition >= pos) {
         return { ...block, bufferPosition: block.bufferPosition + delta };
       }
     } else if (isTable(block)) {
-      if (block.textRange.start >= pos) {
-        const newRange = new BufferRange(block.textRange.start + delta, block.textRange.end + delta);
-        return { ...block, textRange: newRange };
-      } else if (block.textRange.end > pos) {
-        const newRange = new BufferRange(block.textRange.start, block.textRange.end + delta);
-        return { ...block, textRange: newRange };
-      }
+      const shiftedRows = block.rows.map((row) =>
+        TableRow.create(
+          row.cells.map((cell) => {
+            const isSourceCell = sourceBlockId && cell.children.some((ch) => ch.id === sourceBlockId);
+            let newCellRange = cell.textRange;
+            if (cell.textRange.start >= pos) {
+              newCellRange = new BufferRange(
+                cell.textRange.start + delta,
+                cell.textRange.end + delta,
+              );
+            } else if (cell.textRange.end > pos) {
+              newCellRange = new BufferRange(cell.textRange.start, cell.textRange.end + delta);
+            }
+            const newChildren = cell.children.map((child) => {
+              const isSource = child.id === sourceBlockId;
+              if (child.textRange.start >= pos) {
+                return {
+                  ...child,
+                  textRange: new BufferRange(
+                    child.textRange.start + delta,
+                    child.textRange.end + delta,
+                  ),
+                };
+              }
+              if (child.textRange.end > pos || isSource) {
+                return {
+                  ...child,
+                  textRange: new BufferRange(child.textRange.start, child.textRange.end + delta),
+                };
+              }
+              return child;
+            });
+            return TableCell.withTextRange(
+              TableCell.withChildren(cell, newChildren),
+              newCellRange,
+            );
+          }),
+        ),
+      );
+      const newTableRange =
+        block.textRange.start >= pos
+          ? new BufferRange(block.textRange.start + delta, block.textRange.end + delta)
+          : block.textRange.end > pos
+            ? new BufferRange(block.textRange.start, block.textRange.end + delta)
+            : block.textRange;
+      return Table.withTextRange(Table.withRows(block, shiftedRows), newTableRange);
     }
     return null;
   }

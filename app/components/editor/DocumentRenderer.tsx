@@ -6,6 +6,7 @@
 import { DEFAULT_FONT } from "~/lib/doc/fonts";
 import type { Document as DomainDocument } from "~/lib/domain/document/Document";
 import type { Block, Paragraph, Heading, Table, Image, List, Blockquote } from "~/lib/domain/document/entities";
+import { TABLE_CELL_SEPARATOR } from "~/lib/domain/document/entities/Table";
 import type { FormattingMark } from "~/lib/domain/document/value-objects/FormattingMark";
 import { isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "~/lib/domain/document/entities";
 
@@ -18,27 +19,15 @@ export function renderDocument(
   root.innerHTML = "";
   
   const buffer = doc.getBuffer();
-  const docTextLen = doc.getText().length;
-  
-  console.log('renderDocument', { docTextLen, bufferText: doc.getText() });
   
   for (const section of doc.sections) {
     for (const block of section.children) {
-      if (isParagraph(block)) {
-        console.log('  paragraph block', { 
-          range: `[${block.textRange.start}, ${block.textRange.end}]`,
-          text: buffer.getRange(block.textRange.start, block.textRange.end)
-        });
-      }
       const el = renderBlock(block, doc, buffer, getAssetDataUrl);
       if (el) {
         root.appendChild(el);
       }
     }
   }
-  
-  const rootTextLen = root.innerText?.length ?? 0;
-  console.log('renderDocument done', { docTextLen, rootTextLen, childCount: root.childNodes.length });
   
   if (root.childNodes.length === 0) {
     const p = document.createElement("p");
@@ -63,7 +52,7 @@ function renderBlock(
     return renderImage(block, getAssetDataUrl);
   }
   if (isTable(block)) {
-    return renderTable(block, buffer);
+    return renderTable(block, doc, buffer, getAssetDataUrl);
   }
   if (isBlockquote(block)) {
     return renderBlockquote(block, doc, buffer, getAssetDataUrl);
@@ -188,23 +177,26 @@ function renderImage(
 
 function renderTable(
   node: Table,
+  doc: DomainDocument,
   buffer: { getRange: (start: number, end: number) => string },
+  getAssetDataUrl?: (name: string) => string | null,
 ): HTMLTableElement {
   const table = document.createElement("table");
   table.className = "editor-table w-full border-collapse my-2";
   table.setAttribute("data-node-id", node.id.toString());
-  const text = buffer.getRange(node.textRange.start, node.textRange.end);
-  const rows = text.split("\n");
-  for (let r = 0; r < node.rows; r++) {
+  for (const row of node.rows) {
     const tr = document.createElement("tr");
     tr.className = "editor-table-row";
-    const rowText = rows[r] ?? "";
-    const cells = rowText.split("\t");
-    for (let c = 0; c < node.cols; c++) {
+    for (const cell of row.cells) {
       const td = document.createElement("td");
       td.className = "editor-table-cell border border-zinc-300 p-1 align-top";
-      td.textContent = cells[c] ?? "";
-      if (!td.textContent) td.innerHTML = "<br>";
+      td.setAttribute("contenteditable", "true");
+      td.setAttribute("data-cell-id", cell.id.toString());
+      for (const child of cell.children) {
+        const el = renderBlock(child, doc, buffer, getAssetDataUrl);
+        if (el) td.appendChild(el);
+      }
+      if (!td.childNodes.length) td.innerHTML = "<br>";
       tr.appendChild(td);
     }
     table.appendChild(tr);

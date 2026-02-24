@@ -1,7 +1,7 @@
 export type { BlockBase, BlockType } from "./Block";
 export type { Paragraph } from "./Paragraph";
 export type { Heading, HeadingLevel } from "./Heading";
-export type { Table } from "./Table";
+export type { Table, TableRow, TableCell, TableCellChild } from "./Table";
 export type { Image, AssetRef } from "./Image";
 export type { List, ListItem, ListType } from "./List";
 export type { Blockquote, BlockquoteChild } from "./Blockquote";
