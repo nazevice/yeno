@@ -18,6 +18,8 @@ interface ToolbarProps {
   pageHeightPx: number;
   onPageWidthChange: (px: number) => void;
   onPageHeightChange: (px: number) => void;
+  showDebugPanel?: boolean;
+  onToggleDebugPanel?: () => void;
 }
 
 function getSelectionFontInfo(): { font: string; fontSize: string } | null {
@@ -110,6 +112,8 @@ export function Toolbar({
   pageHeightPx,
   onPageWidthChange,
   onPageHeightChange,
+  showDebugPanel,
+  onToggleDebugPanel,
 }: ToolbarProps) {
   const editor = useEditor();
   const selectionStyle = useSyncExternalStore(
@@ -488,6 +492,17 @@ export function Toolbar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {/* Debug toggle */}
+        {onToggleDebugPanel && (
+          <button
+            className={`toolbar-btn-minimal ${showDebugPanel ? "bg-zinc-200" : ""}`}
+            onClick={onToggleDebugPanel}
+            title="Toggle debug panel"
+          >
+            Debug
+          </button>
+        )}
+
         {/* Dimensions popover */}
         <div className="relative" ref={sizePopoverRef}>
           <button

@@ -9,6 +9,7 @@ import type { AssetRef } from "~/lib/domain/document/entities/Image";
 import { createRangeFromOffsets } from "./core/domSelection";
 import { ImageResizePlugin } from "./plugins/ImageResizePlugin";
 import { TablePlugin } from "./plugins/TablePlugin";
+import { DebugPanel } from "./DebugPanel";
 
 function assetToDataUrl(asset: AssetRef | null): string | null {
   if (!asset?.bytes?.length) return null;
@@ -127,6 +128,7 @@ export function EditorShell() {
   const [pageHeightPx, setPageHeightPx] = useState(DEFAULT_PAGE_HEIGHT);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
   const paginatedContainerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -258,41 +260,47 @@ export function EditorShell() {
     <EditorProvider service={service} rootRef={rootRef}>
       <ImageResizePlugin />
       <TablePlugin />
-      <main className="mx-auto flex h-screen max-w-7xl flex-col gap-3 p-4 text-zinc-900">
-        <Toolbar
-          onInsertImage={onInsertImage}
-          pageWidthPx={pageWidthPx}
-          pageHeightPx={pageHeightPx}
-          onPageWidthChange={setPageWidthPx}
-          onPageHeightChange={setPageHeightPx}
-        />
+      <main className="mx-auto flex h-screen max-w-[100vw] flex gap-0 p-4 text-zinc-900">
+        <div className="flex flex-1 flex-col gap-3">
+          <Toolbar
+            onInsertImage={onInsertImage}
+            pageWidthPx={pageWidthPx}
+            pageHeightPx={pageHeightPx}
+            onPageWidthChange={setPageWidthPx}
+            onPageHeightChange={setPageHeightPx}
+            showDebugPanel={showDebugPanel}
+            onToggleDebugPanel={() => setShowDebugPanel((p) => !p)}
+          />
 
-        <div className="flex-1 overflow-hidden">
-          <div
-            ref={paginatedContainerRef}
-            className="h-full overflow-auto bg-zinc-100"
-            data-testid="editor-scroll-container"
-          >
+          <div className="flex-1 overflow-hidden">
             <div
-              className="mx-auto bg-white shadow-lg"
-              style={{ width: pageWidthPx, minHeight: pageHeightPx }}
+              ref={paginatedContainerRef}
+              className="h-full overflow-auto bg-zinc-100"
+              data-testid="editor-scroll-container"
             >
-              <ContentEditableRoot
-                className="editor-content paged p-12 outline-none"
-                style={contentEditableStylePaginated}
-                getAssetDataUrl={getAssetDataUrl}
-                data-testid="editor-content"
-              />
+              <div
+                className="mx-auto bg-white shadow-lg"
+                style={{ width: pageWidthPx, minHeight: pageHeightPx }}
+              >
+                <ContentEditableRoot
+                  className="editor-content paged p-12 outline-none"
+                  style={contentEditableStylePaginated}
+                  getAssetDataUrl={getAssetDataUrl}
+                  data-testid="editor-content"
+                />
+              </div>
             </div>
           </div>
+
+          <EditorFooter currentPage={currentPage} pageCount={pageCount} service={service} />
+
+          <EditorImageInput
+            ref={fileInputRef}
+            setAssets={setAssets}
+          />
         </div>
 
-        <EditorFooter currentPage={currentPage} pageCount={pageCount} service={service} />
-
-        <EditorImageInput
-          ref={fileInputRef}
-          setAssets={setAssets}
-        />
+        {showDebugPanel && <DebugPanel service={service} />}
       </main>
     </EditorProvider>
   );

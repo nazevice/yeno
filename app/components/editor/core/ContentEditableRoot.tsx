@@ -49,16 +49,21 @@ function ContentEditableRootInner({
             if (range) {
               const anchor = range.start + offsets.anchor.offset;
               const focus = range.start + offsets.focus.offset;
-              const domRange = createRangeFromOffsets(root, anchor, focus);
-              if (domRange) {
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(domRange);
-              }
+              requestAnimationFrame(() => {
+                const domRange = createRangeFromOffsets(root, anchor, focus);
+                if (domRange) {
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(domRange);
+                  const inTableCell = domRange.startContainer.parentElement?.closest('td, th');
+                  if (!inTableCell) {
+                    root.focus();
+                  }
+                }
+              });
             }
           }
         }
-        root.focus();
       }
     };
 
