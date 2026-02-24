@@ -117,8 +117,32 @@ export class Document {
 
   getBlock(blockId: BlockId): Block | null {
     for (const section of this.state.sections) {
-      const found = Section.findBlockById(section, blockId);
+      const found = this.findBlockInTree(section.children, blockId);
       if (found) return found;
+    }
+    return null;
+  }
+
+  private findBlockInTree(blocks: readonly Block[], blockId: BlockId): Block | null {
+    for (const block of blocks) {
+      if (block.id === blockId) return block;
+
+      if (isTable(block)) {
+        for (const row of block.rows) {
+          for (const cell of row.cells) {
+            const found = this.findBlockInTree(cell.children as Block[], blockId);
+            if (found) return found;
+          }
+        }
+      } else if (isList(block)) {
+        for (const item of block.items) {
+          const found = this.findBlockInTree([item.content], blockId);
+          if (found) return found;
+        }
+      } else if (isBlockquote(block)) {
+        const found = this.findBlockInTree(block.children, blockId);
+        if (found) return found;
+      }
     }
     return null;
   }
@@ -539,6 +563,8 @@ export class Document {
     
     let bufPos = insertPos + 1;
     const tableRows: TableRow[] = [];
+    const totalCells = rows * cols;
+    let cellIndex = 0;
     for (let r = 0; r < rows; r++) {
       const cells: TableCell[] = [];
       for (let c = 0; c < cols; c++) {
@@ -547,12 +573,16 @@ export class Document {
         const cellRange = new BufferRange(bufPos, bufPos);
         const paragraph = Paragraph.create(paraId, cellRange, []);
         cells.push(TableCell.create(cellId, cellRange, [paragraph]));
-        bufPos += 1;
+        
+        if (cellIndex < totalCells - 1) {
+          bufPos += 1;
+        }
+        cellIndex += 1;
       }
       tableRows.push(TableRow.create(cells));
     }
     
-    const textRange = new BufferRange(insertPos + 1, insertPos + tableText.length);
+    const textRange = new BufferRange(insertPos, insertPos + tableText.length);
     const tableBlock = Table.create(tableId, textRange, tableRows, colWidths);
     
     this.shiftRangesAfter(insertPos, tableText.length, afterBlockId);
@@ -801,7 +831,10 @@ export class Document {
           row.cells.map((cell) => {
             const isSourceCell = sourceBlockId && cell.children.some((ch) => ch.id === sourceBlockId);
             let newCellRange = cell.textRange;
-            if (cell.textRange.start >= pos) {
+
+            if (isSourceCell) {
+              newCellRange = new BufferRange(cell.textRange.start, cell.textRange.end + delta);
+            } else if (cell.textRange.start >= pos) {
               newCellRange = new BufferRange(
                 cell.textRange.start + delta,
                 cell.textRange.end + delta,
@@ -809,8 +842,16 @@ export class Document {
             } else if (cell.textRange.end > pos) {
               newCellRange = new BufferRange(cell.textRange.start, cell.textRange.end + delta);
             }
+
             const newChildren = cell.children.map((child) => {
               const isSource = child.id === sourceBlockId;
+              
+              if (isSource && child.textRange.start === pos) {
+                return {
+                  ...child,
+                  textRange: new BufferRange(child.textRange.start, child.textRange.end + delta),
+                };
+              }
               if (child.textRange.start >= pos) {
                 return {
                   ...child,
@@ -828,6 +869,7 @@ export class Document {
               }
               return child;
             });
+            
             return TableCell.withTextRange(
               TableCell.withChildren(cell, newChildren),
               newCellRange,
@@ -835,12 +877,14 @@ export class Document {
           }),
         ),
       );
+      
       const newTableRange =
         block.textRange.start >= pos
           ? new BufferRange(block.textRange.start + delta, block.textRange.end + delta)
           : block.textRange.end > pos
             ? new BufferRange(block.textRange.start, block.textRange.end + delta)
             : block.textRange;
+            
       return Table.withTextRange(Table.withRows(block, shiftedRows), newTableRange);
     }
     return null;

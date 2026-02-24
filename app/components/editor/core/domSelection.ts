@@ -44,7 +44,7 @@ function getTableTextContent(table: HTMLTableElement): string {
       cells.push(getBlockTextContent(cell as HTMLElement));
     }
   }
-  return "\n" + cells.join(TABLE_CELL_SEPARATOR);
+  return cells.join(TABLE_CELL_SEPARATOR);
 }
 
 
@@ -83,7 +83,6 @@ function countTextLength(root: HTMLElement, range: Range): number {
     }
     const table = getTableFromBlock(block);
     if (table) {
-      count += 1;
       let cellIndex = 0;
       const totalCells = Array.from(table.rows).reduce((sum, r) => sum + r.cells.length, 0);
       for (const row of table.rows) {
@@ -213,7 +212,6 @@ function findNodesForOffsets(
     }
     const table = getTableFromBlock(block);
     if (table) {
-      cursor += 1;
       let cellIndex = 0;
       const totalCells = Array.from(table.rows).reduce((sum, r) => sum + r.cells.length, 0);
       for (const row of table.rows) {
