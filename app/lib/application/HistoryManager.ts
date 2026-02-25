@@ -1,8 +1,8 @@
-import type { DocumentEvents } from "../domain/document/events/index";
+import type { DocumentSnapshot } from "../domain/document/DocumentSnapshot";
 import type { Selection } from "./SelectionManager";
 
 export interface HistoryEntry {
-  inverseEvent: DocumentEvents;
+  snapshot: DocumentSnapshot;
   selection: Selection | null;
 }
 
@@ -31,18 +31,22 @@ export class HistoryManager {
     }
   }
 
-  undo(): HistoryEntry | null {
+  undo(currentEntry: HistoryEntry): HistoryEntry | null {
     if (this.past.length === 0) return null;
-    const entry = this.past.pop()!;
-    this.future.push(entry);
-    return entry;
+    
+    this.future.push(currentEntry);
+    
+    const previousEntry = this.past.pop()!;
+    return previousEntry;
   }
 
-  redo(): HistoryEntry | null {
+  redo(currentEntry: HistoryEntry): HistoryEntry | null {
     if (this.future.length === 0) return null;
-    const entry = this.future.pop()!;
-    this.past.push(entry);
-    return entry;
+
+    this.past.push(currentEntry);
+
+    const nextEntry = this.future.pop()!;
+    return nextEntry;
   }
 
   clear(): void {

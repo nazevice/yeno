@@ -1,13 +1,13 @@
 import type { BlockId, DocumentId, SectionId } from "../domain/shared/NodeId";
 import { Document } from "../domain/document/Document";
 import type { DocumentRepository } from "../domain/document/DocumentRepository";
+import type { DocumentSnapshot } from "../domain/document/DocumentSnapshot";
 import type { Block } from "../domain/document/entities";
 import { TextAttributes } from "../domain/document/value-objects/TextAttributes";
 import type { TextAlign } from "../domain/document/value-objects/TextAlign";
 import type { SectionLayout } from "../domain/document/value-objects/SectionLayout";
 import type { AssetRef } from "../domain/document/entities/Image";
 import { isTable } from "../domain/document/entities";
-import type { DocumentEvents } from "../domain/document/events";
 import { HistoryManager } from "./HistoryManager";
 import { SelectionManager, type Selection } from "./SelectionManager";
 import { ActiveMarksManager } from "./ActiveMarksManager";
@@ -304,10 +304,18 @@ export class EditorService {
   }
 
   undo(): void {
-    const entry = this.historyManager.undo();
-    if (!entry || !this.document) return;
+    if (!this.document) return;
     
-    this._applyInverseEvent(entry.inverseEvent);
+    const currentSnapshot = this.document.toSnapshot();
+    const currentSelection = this.selectionManager.selection;
+    
+    const entry = this.historyManager.undo({
+      snapshot: currentSnapshot,
+      selection: currentSelection,
+    });
+    if (!entry) return;
+    
+    this.document = Document.reconstitute(entry.snapshot);
     this.selectionManager.setSelection(entry.selection);
     
     this._isDirty = true;
@@ -315,8 +323,19 @@ export class EditorService {
   }
 
   redo(): void {
-    const entry = this.historyManager.redo();
-    if (!entry || !this.document) return;
+    if (!this.document) return;
+    
+    const currentSnapshot = this.document.toSnapshot();
+    const currentSelection = this.selectionManager.selection;
+    
+    const entry = this.historyManager.redo({
+      snapshot: currentSnapshot,
+      selection: currentSelection,
+    });
+    if (!entry) return;
+    
+    this.document = Document.reconstitute(entry.snapshot);
+    this.selectionManager.setSelection(entry.selection);
     
     this._isDirty = true;
     this._notify();
@@ -482,25 +501,15 @@ export class EditorService {
   }
 
   private _pushHistory(): void {
-    const sel = this.selectionManager.selection;
-    const lastEvent = this.document?.pullEvents()[0];
+    if (!this.document) return;
     
-    if (lastEvent) {
-      const inverseEvent = this._createInverseEvent(lastEvent);
-      if (inverseEvent) {
-        this.historyManager.push({
-          inverseEvent,
-          selection: sel ? { ...sel } : null,
-        });
-      }
-    }
-  }
-
-  private _createInverseEvent(event: DocumentEvents): DocumentEvents | null {
-    return null;
-  }
-
-  private _applyInverseEvent(event: DocumentEvents): void {
+    const snapshot = this.document.toSnapshot();
+    const selection = this.selectionManager.selection;
+    
+    this.historyManager.push({
+      snapshot,
+      selection: selection ? { ...selection } : null,
+    });
   }
 
   private _notify(): void {
