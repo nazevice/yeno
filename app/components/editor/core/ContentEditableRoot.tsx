@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useEffect, useRef } from "react";
 import { useEditorContext } from "./EditorContext";
-import { getSelectionOffsets, getTextContentFromDOM, createRangeFromOffsets } from "./domSelection";
+import { getSelectionOffsets, getTextContentFromDOM, applySelectionFromOffsets } from "./domSelection";
 import { renderDocument } from "../DocumentRenderer";
 
 interface ContentEditableRootProps {
@@ -50,12 +50,9 @@ function ContentEditableRootInner({
               const anchor = range.start + offsets.anchor.offset;
               const focus = range.start + offsets.focus.offset;
               requestAnimationFrame(() => {
-                const domRange = createRangeFromOffsets(root, anchor, focus);
-                if (domRange) {
+                if (applySelectionFromOffsets(root, anchor, focus)) {
                   const sel = window.getSelection();
-                  sel?.removeAllRanges();
-                  sel?.addRange(domRange);
-                  const inTableCell = domRange.startContainer.parentElement?.closest('td, th');
+                  const inTableCell = sel?.anchorNode?.parentElement?.closest('td, th');
                   if (!inTableCell) {
                     root.focus();
                   }

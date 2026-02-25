@@ -6,7 +6,7 @@ import { ContentEditableRoot } from "./core/ContentEditableRoot";
 import { Toolbar } from "./Toolbar";
 import { renderDocument } from "./DocumentRenderer";
 import type { AssetRef } from "~/lib/domain/document/entities/Image";
-import { createRangeFromOffsets } from "./core/domSelection";
+import { applySelectionFromOffsets } from "./core/domSelection";
 import { ImageResizePlugin } from "./plugins/ImageResizePlugin";
 import { TablePlugin } from "./plugins/TablePlugin";
 import { DebugPanel } from "./DebugPanel";
@@ -163,12 +163,7 @@ export function EditorShell() {
             if (range) {
               const anchor = range.start + offsets.anchor.offset;
               const focus = range.start + offsets.focus.offset;
-              const domRange = createRangeFromOffsets(root, anchor, focus);
-              if (domRange) {
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(domRange);
-              }
+              applySelectionFromOffsets(root, anchor, focus);
             }
           }
         }

@@ -161,7 +161,9 @@ export function createRangeFromOffsets(
   startOffset: number,
   endOffset: number,
 ): Range | null {
-  const result = findNodesForOffsets(root, startOffset, endOffset);
+  const minOffset = Math.min(startOffset, endOffset);
+  const maxOffset = Math.max(startOffset, endOffset);
+  const result = findNodesForOffsets(root, minOffset, maxOffset);
   if (!result) return null;
 
   const range = document.createRange();
@@ -172,6 +174,31 @@ export function createRangeFromOffsets(
     return null;
   }
   return range;
+}
+
+export function applySelectionFromOffsets(
+  root: HTMLElement,
+  anchorOffset: number,
+  focusOffset: number,
+): boolean {
+  const sel = window.getSelection();
+  if (!sel) return false;
+
+  const anchorResult = findNodesForOffsets(root, anchorOffset, anchorOffset);
+  const focusResult = findNodesForOffsets(root, focusOffset, focusOffset);
+  if (!anchorResult || !focusResult) return false;
+
+  try {
+    sel.setBaseAndExtent(
+      anchorResult.anchor.node,
+      anchorResult.anchor.offset,
+      focusResult.anchor.node,
+      focusResult.anchor.offset,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface NodeOffset {
@@ -302,14 +329,14 @@ function findNodesForOffsets(
 export function getSelectionOffsets(root: HTMLElement): { anchor: number; focus: number } | null {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return null;
-  const range = sel.getRangeAt(0);
-  if (!root.contains(range.commonAncestorContainer)) return null;
+  if (!sel.anchorNode || !root.contains(sel.anchorNode)) return null;
+  if (!sel.focusNode || !root.contains(sel.focusNode)) return null;
   const anchorRange = document.createRange();
   anchorRange.setStart(root, 0);
-  anchorRange.setEnd(range.startContainer, range.startOffset);
+  anchorRange.setEnd(sel.anchorNode, sel.anchorOffset);
   const focusRange = document.createRange();
   focusRange.setStart(root, 0);
-  focusRange.setEnd(range.endContainer, range.endOffset);
+  focusRange.setEnd(sel.focusNode, sel.focusOffset);
   return {
     anchor: countTextLength(root, anchorRange),
     focus: countTextLength(root, focusRange),
