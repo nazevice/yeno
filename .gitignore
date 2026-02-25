@@ -17,5 +17,9 @@
 /app/lib/wasm/pkg/*.d.ts
 /app/lib/wasm/pkg/*.ts
 
+# Playwright
+/playwright-report/
+/test-results/
+
 # Rust build output
 target/
