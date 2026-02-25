@@ -105,14 +105,7 @@ export function EditorProvider({
             service.formatText(TextAttributes.from({ fontSize: px }));
           }
         } else if (cmd === "textAlign" && value) {
-          const blockId = sel.anchor.blockId;
-          const doc = service.getDocument();
-          if (doc) {
-            const block = doc.getBlock(blockId);
-            if (block) {
-              doc.setTextAlign(blockId, value as "left" | "center" | "right" | "justify");
-            }
-          }
+          service.setTextAlign(value as "left" | "center" | "right" | "justify");
         } else if (cmd === "heading" && value) {
           const level = Number(value) as 1 | 2 | 3;
           if (level >= 1 && level <= 3) {
