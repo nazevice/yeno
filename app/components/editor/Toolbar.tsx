@@ -80,29 +80,40 @@ type SelectionStyle = {
   font: string;
   fontSize: string;
   align: ReturnType<typeof getSelectionAlignInfo>;
+  bold: boolean;
+  italic: boolean;
 };
 
 const DEFAULT_SELECTION_STYLE: SelectionStyle = {
   font: DEFAULT_FONT,
   fontSize: DEFAULT_FONT_SIZE,
   align: "default",
+  bold: false,
+  italic: false,
 };
 
 let cachedSelectionStyle: SelectionStyle = DEFAULT_SELECTION_STYLE;
 
-function getSelectionStyleSnapshot(): SelectionStyle {
+function getSelectionStyleSnapshot(editor: EditorApi | null): SelectionStyle {
   const fontInfo = getSelectionFontInfo();
   const align = getSelectionAlignInfo();
   const font = fontInfo?.font ?? DEFAULT_FONT;
   const fontSize = fontInfo?.fontSize ?? DEFAULT_FONT_SIZE;
+  const marks = editor?.getActiveMarks();
+  const bold = marks?.bold ?? false;
+  const italic = marks?.italic ?? false;
+  
   if (
     cachedSelectionStyle.font === font &&
     cachedSelectionStyle.fontSize === fontSize &&
-    cachedSelectionStyle.align === align
+    cachedSelectionStyle.align === align &&
+    cachedSelectionStyle.bold === bold &&
+    cachedSelectionStyle.italic === italic
   ) {
     return cachedSelectionStyle;
   }
-  cachedSelectionStyle = { font, fontSize, align };
+  
+  cachedSelectionStyle = { font, fontSize, align, bold, italic };
   return cachedSelectionStyle;
 }
 
@@ -126,10 +137,10 @@ export function Toolbar({
         document.removeEventListener("selectionchange", callback);
       };
     },
-    getSelectionStyleSnapshot,
+    () => getSelectionStyleSnapshot(editor),
     () => DEFAULT_SELECTION_STYLE,
   );
-  const { font: currentFont, fontSize: currentFontSize, align: currentAlign } = selectionStyle;
+  const { font: currentFont, fontSize: currentFontSize, align: currentAlign, bold: isBold, italic: isItalic } = selectionStyle;
   const isPreset = FONT_SIZE_OPTIONS.some(
     (o) => o.value === currentFontSize && o.value !== "custom",
   );
@@ -272,6 +283,7 @@ export function Toolbar({
           }}
           title="Bold"
           data-testid="format-bold"
+          data-active={isBold}
         >
           B
         </button>
@@ -284,6 +296,7 @@ export function Toolbar({
           }}
           title="Italic"
           data-testid="format-italic"
+          data-active={isItalic}
         >
           I
         </button>

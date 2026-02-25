@@ -905,4 +905,17 @@ export class Document {
     const range = new BufferRange(start, end);
     return rangeHasAttr(block.marks, range, attr);
   }
+
+  getMarksAtOffset(blockId: BlockId, offset: number): TextAttributes {
+    const block = this.getBlock(blockId);
+    if (!block || !isTextBlock(block)) return TextAttributes.empty;
+    
+    let result = TextAttributes.empty;
+    for (const mark of block.marks) {
+      if (offset >= mark.start && offset <= mark.end) {
+        result = result.merge(mark.attrs);
+      }
+    }
+    return result;
+  }
 }

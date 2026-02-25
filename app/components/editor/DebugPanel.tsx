@@ -102,6 +102,7 @@ export function DebugPanel({ service }: DebugPanelProps) {
     sections: SerializableSection[];
     buffer: string;
     selection: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null;
+    activeMarks: { bold?: boolean | undefined; italic?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
   } | null>(null);
 
   useEffect(() => {
@@ -111,6 +112,7 @@ export function DebugPanel({ service }: DebugPanelProps) {
 
       const buffer = doc.getBuffer().getText();
       const selection = service.selection;
+      const activeMarks = service.activeMarks;
 
       setDocData({
         sections: serializeDocument(doc),
@@ -121,6 +123,7 @@ export function DebugPanel({ service }: DebugPanelProps) {
               focus: { blockId: selection.focus.blockId as string, offset: selection.focus.offset },
             }
           : null,
+        activeMarks: activeMarks ? { ...activeMarks.toJSON() } : null,
       });
     };
 
@@ -147,6 +150,23 @@ export function DebugPanel({ service }: DebugPanelProps) {
           <pre className="text-[10px] text-zinc-400 font-mono">
 {JSON.stringify(docData.selection, null, 2)}
           </pre>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Active Marks" defaultOpen>
+          <div className="text-[10px] text-zinc-400 font-mono space-y-1">
+            {docData.activeMarks && Object.keys(docData.activeMarks).length > 0 ? (
+              Object.entries(docData.activeMarks).map(([key, value]) => (
+                value !== undefined && (
+                  <div key={key} className="flex gap-2">
+                    <span className="text-cyan-400">{key}:</span>
+                    <span className="text-yellow-400">{String(value)}</span>
+                  </div>
+                )
+              ))
+            ) : (
+              <span className="text-zinc-500">No active marks</span>
+            )}
+          </div>
         </CollapsibleSection>
 
         <CollapsibleSection title="Sections & Blocks" defaultOpen>

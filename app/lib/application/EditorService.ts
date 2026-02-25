@@ -347,12 +347,26 @@ export class EditorService {
       focus: { blockId: focusResolved.block.id, offset: focusResolved.localOffset },
     };
     const prev = this.selectionManager.selection;
-    if (prev && prev.anchor.blockId === newSel.anchor.blockId &&
-        prev.anchor.offset === newSel.anchor.offset && prev.focus.blockId === newSel.focus.blockId &&
-        prev.focus.offset === newSel.focus.offset) {
-      return;
-    }
+    const selectionChanged = !prev || 
+      prev.anchor.blockId !== newSel.anchor.blockId ||
+      prev.anchor.offset !== newSel.anchor.offset || 
+      prev.focus.blockId !== newSel.focus.blockId ||
+      prev.focus.offset !== newSel.focus.offset;
+    
+    if (!selectionChanged) return;
+    
     this.selectionManager.setSelection(newSel);
+    
+    let marksChanged = false;
+    if (anchor === focus) {
+      const newMarks = this.document.getMarksAtOffset(newSel.anchor.blockId, newSel.anchor.offset);
+      const prevMarks = this.activeMarksManager.marks;
+      if (!prevMarks || !prevMarks.equals(newMarks)) {
+        this.activeMarksManager.setMarks(newMarks);
+        marksChanged = true;
+      }
+    }
+    
     this._notify();
   }
 
