@@ -82,6 +82,7 @@ type SelectionStyle = {
   align: ReturnType<typeof getSelectionAlignInfo>;
   bold: boolean;
   italic: boolean;
+  underline: boolean;
 };
 
 const DEFAULT_SELECTION_STYLE: SelectionStyle = {
@@ -90,6 +91,7 @@ const DEFAULT_SELECTION_STYLE: SelectionStyle = {
   align: "default",
   bold: false,
   italic: false,
+  underline: false,
 };
 
 let cachedSelectionStyle: SelectionStyle = DEFAULT_SELECTION_STYLE;
@@ -102,18 +104,20 @@ function getSelectionStyleSnapshot(editor: EditorApi | null): SelectionStyle {
   const marks = editor?.getActiveMarks();
   const bold = marks?.bold ?? false;
   const italic = marks?.italic ?? false;
+  const underline = marks?.underline ?? false;
   
   if (
     cachedSelectionStyle.font === font &&
     cachedSelectionStyle.fontSize === fontSize &&
     cachedSelectionStyle.align === align &&
     cachedSelectionStyle.bold === bold &&
-    cachedSelectionStyle.italic === italic
+    cachedSelectionStyle.italic === italic &&
+    cachedSelectionStyle.underline === underline
   ) {
     return cachedSelectionStyle;
   }
   
-  cachedSelectionStyle = { font, fontSize, align, bold, italic };
+  cachedSelectionStyle = { font, fontSize, align, bold, italic, underline };
   return cachedSelectionStyle;
 }
 
@@ -140,7 +144,7 @@ export function Toolbar({
     () => getSelectionStyleSnapshot(editor),
     () => DEFAULT_SELECTION_STYLE,
   );
-  const { font: currentFont, fontSize: currentFontSize, align: currentAlign, bold: isBold, italic: isItalic } = selectionStyle;
+  const { font: currentFont, fontSize: currentFontSize, align: currentAlign, bold: isBold, italic: isItalic, underline: isUnderline } = selectionStyle;
   const isPreset = FONT_SIZE_OPTIONS.some(
     (o) => o.value === currentFontSize && o.value !== "custom",
   );
@@ -299,6 +303,19 @@ export function Toolbar({
           data-active={isItalic}
         >
           I
+        </button>
+        <button
+          type="button"
+          className="toolbar-btn-minimal"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            run((editor) => editor.execFormat("underline"));
+          }}
+          title="Underline"
+          data-testid="format-underline"
+          data-active={isUnderline}
+        >
+          U
         </button>
       </div>
       <span className="toolbar-divider" />

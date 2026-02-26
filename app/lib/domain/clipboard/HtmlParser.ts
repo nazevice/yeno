@@ -163,7 +163,7 @@ function extractMarksRecursive(
   node: Element | Node,
   startOffset: number,
   marks: FormattingMarkData[],
-  inheritedAttrs: { bold?: boolean; italic?: boolean; font?: string; fontSize?: number }
+  inheritedAttrs: { bold?: boolean; italic?: boolean; underline?: boolean; font?: string; fontSize?: number }
 ): number {
   let offset = startOffset;
   
@@ -180,11 +180,14 @@ function extractMarksRecursive(
         attrs.bold = true;
       } else if (tagName === "em" || tagName === "i") {
         attrs.italic = true;
+      } else if (tagName === "u") {
+        attrs.underline = true;
       }
       
       const style = element.getAttribute("style") ?? "";
       const fontFamilyMatch = style.match(/font-family:\s*([^;]+)/i);
       const fontSizeMatch = style.match(/font-size:\s*(\d+)px/i);
+      const textDecorationMatch = style.match(/text-decoration:\s*underline/i);
       
       if (fontFamilyMatch) {
         attrs.font = fontFamilyMatch[1]!.trim();
@@ -192,18 +195,22 @@ function extractMarksRecursive(
       if (fontSizeMatch) {
         attrs.fontSize = parseInt(fontSizeMatch[1]!, 10);
       }
+      if (textDecorationMatch) {
+        attrs.underline = true;
+      }
       
       const childStart = offset;
       offset = extractMarksRecursive(element, offset, marks, attrs);
       const childEnd = offset;
       
-      if (childStart < childEnd && (attrs.bold || attrs.italic || attrs.font || attrs.fontSize)) {
+      if (childStart < childEnd && (attrs.bold || attrs.italic || attrs.underline || attrs.font || attrs.fontSize)) {
         marks.push({
           start: childStart,
           end: childEnd,
           attrs: {
             bold: attrs.bold,
             italic: attrs.italic,
+            underline: attrs.underline,
             font: attrs.font,
             fontSize: attrs.fontSize,
           },

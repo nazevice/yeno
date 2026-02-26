@@ -205,13 +205,13 @@ function compactMarks(marks: FormattingMark[]): FormattingMark[] {
   return result;
 }
 
-export function rangeHasAttr(marks: readonly FormattingMark[], range: BufferRange, attr: "bold" | "italic"): boolean {
+export function rangeHasAttr(marks: readonly FormattingMark[], range: BufferRange, attr: "bold" | "italic" | "underline"): boolean {
   if (range.isEmpty) return false;
 
   const covered: Array<[number, number]> = [];
   
   for (const mark of marks) {
-    const attrValue = attr === "bold" ? mark.attrs.bold : mark.attrs.italic;
+    const attrValue = attr === "bold" ? mark.attrs.bold : attr === "italic" ? mark.attrs.italic : mark.attrs.underline;
     if (attrValue === true) {
       const intersection = mark.range.intersection(range);
       if (intersection) {

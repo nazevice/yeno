@@ -114,6 +114,11 @@ function applyTextWithMarks(
     
     let node: HTMLElement = document.createElement("span");
     
+    if (mark.attrs.underline) {
+      const u = document.createElement("u");
+      u.appendChild(node);
+      node = u;
+    }
     if (mark.attrs.italic) {
       const em = document.createElement("em");
       em.appendChild(node);

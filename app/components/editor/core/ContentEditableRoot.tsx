@@ -195,6 +195,11 @@ function ContentEditableRootInner({
           editor.execFormat("italic");
           return;
         }
+        if (e.key === "u") {
+          e.preventDefault();
+          editor.execFormat("underline");
+          return;
+        }
       }
 
       if (e.key === "Enter" && !e.shiftKey) {

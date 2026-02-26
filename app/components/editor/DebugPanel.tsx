@@ -102,7 +102,7 @@ export function DebugPanel({ service }: DebugPanelProps) {
     sections: SerializableSection[];
     buffer: string;
     selection: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null;
-    activeMarks: { bold?: boolean | undefined; italic?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
+    activeMarks: { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
   } | null>(null);
 
   useEffect(() => {

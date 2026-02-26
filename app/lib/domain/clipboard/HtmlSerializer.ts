@@ -44,7 +44,7 @@ function serializeTextWithMarks(text: string, marks: FormattingMarkData[]): stri
     return escapeHtml(text);
   }
   
-  const charAnnotations: Array<{ bold?: boolean; italic?: boolean; font?: string; fontSize?: number }> = [];
+  const charAnnotations: Array<{ bold?: boolean; italic?: boolean; underline?: boolean; font?: string; fontSize?: number }> = [];
   for (let i = 0; i < text.length; i++) {
     charAnnotations.push({});
   }
@@ -53,6 +53,7 @@ function serializeTextWithMarks(text: string, marks: FormattingMarkData[]): stri
     for (let i = mark.start; i < mark.end && i < text.length; i++) {
       if (mark.attrs?.bold !== undefined) charAnnotations[i]!.bold = mark.attrs.bold;
       if (mark.attrs?.italic !== undefined) charAnnotations[i]!.italic = mark.attrs.italic;
+      if (mark.attrs?.underline !== undefined) charAnnotations[i]!.underline = mark.attrs.underline;
       if (mark.attrs?.font !== undefined) charAnnotations[i]!.font = mark.attrs.font;
       if (mark.attrs?.fontSize !== undefined) charAnnotations[i]!.fontSize = mark.attrs.fontSize;
     }
@@ -86,6 +87,9 @@ function serializeTextWithMarks(text: string, marks: FormattingMarkData[]): stri
 function wrapWithMarks(text: string, attrs: TextAttributesData): string {
   let result = escapeHtml(text);
   
+  if (attrs.underline) {
+    result = `<u>${result}</u>`;
+  }
   if (attrs.italic) {
     result = `<em>${result}</em>`;
   }

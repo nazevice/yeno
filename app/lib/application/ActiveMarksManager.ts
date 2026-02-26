@@ -19,6 +19,10 @@ export class ActiveMarksManager {
     this._marks = this._marks?.toggleItalic() ?? TextAttributes.from({ italic: true });
   }
 
+  toggleUnderline(): void {
+    this._marks = this._marks?.toggleUnderline() ?? TextAttributes.from({ underline: true });
+  }
+
   setFont(font: string): void {
     this._marks = (this._marks ?? TextAttributes.empty).withFont(font);
   }

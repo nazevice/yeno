@@ -496,6 +496,32 @@ export class EditorService {
     this._notify();
   }
 
+  toggleUnderline(): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    if (this.selectionManager.isCollapsed) {
+      this.activeMarksManager.toggleUnderline();
+    } else {
+      const start = this.selectionManager.getStartPoint()!;
+      const end = this.selectionManager.getEndPoint()!;
+      
+      if (start.blockId === end.blockId) {
+        const hasUnderline = this.document.rangeHasAttribute(
+          start.blockId,
+          start.offset,
+          end.offset,
+          "underline"
+        );
+        this.formatText(TextAttributes.from({ underline: !hasUnderline }));
+      }
+    }
+    
+    this._notify();
+  }
+
   getSelectionGlobalRange(): { start: number; end: number } | null {
     if (!this.document) return null;
     

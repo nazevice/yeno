@@ -898,7 +898,7 @@ export class Document {
     this.updateBlockInTree(block.id, updated);
   }
 
-  rangeHasAttribute(blockId: BlockId, start: number, end: number, attr: "bold" | "italic"): boolean {
+  rangeHasAttribute(blockId: BlockId, start: number, end: number, attr: "bold" | "italic" | "underline"): boolean {
     const block = this.getBlock(blockId);
     if (!block || !isTextBlock(block)) return false;
     

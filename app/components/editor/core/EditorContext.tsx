@@ -29,7 +29,7 @@ export interface EditorApi {
   canUndo: boolean;
   canRedo: boolean;
   registerUpdateListener: (listener: () => void) => () => void;
-  getActiveMarks: () => { bold?: boolean | undefined; italic?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
+  getActiveMarks: () => { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
   getSelection: () => Selection | null;
   getSelectionOffsets: () => { anchor: number; focus: number } | null;
   setSelectionFromOffsets: (anchor: number, focus: number) => void;
@@ -97,6 +97,8 @@ export function EditorProvider({
           service.toggleBold();
         } else if (cmd === "italic") {
           service.toggleItalic();
+        } else if (cmd === "underline") {
+          service.toggleUnderline();
         } else if (cmd === "font" && value !== undefined) {
           service.formatText(TextAttributes.from({ font: value || undefined }));
         } else if (cmd === "fontSize" && value !== undefined) {
@@ -121,6 +123,8 @@ export function EditorProvider({
           service.toggleBold();
         } else if (cmd === "italic") {
           service.toggleItalic();
+        } else if (cmd === "underline") {
+          service.toggleUnderline();
         } else if (cmd === "font" && value !== undefined) {
           service.formatText(TextAttributes.from({ font: value || undefined }));
         } else if (cmd === "fontSize" && value !== undefined) {
@@ -149,9 +153,10 @@ export function EditorProvider({
       getActiveMarks: () => {
         const marks = service.activeMarks;
         if (!marks) return null;
-        const result: { bold?: boolean | undefined; italic?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } = {};
+        const result: { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } = {};
         if (marks.bold !== undefined) result.bold = marks.bold;
         if (marks.italic !== undefined) result.italic = marks.italic;
+        if (marks.underline !== undefined) result.underline = marks.underline;
         if (marks.font !== undefined) result.font = marks.font;
         if (marks.fontSize !== undefined) result.fontSize = marks.fontSize;
         return result;
