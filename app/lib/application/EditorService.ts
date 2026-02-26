@@ -7,10 +7,11 @@ import { TextAttributes } from "../domain/document/value-objects/TextAttributes"
 import type { TextAlign } from "../domain/document/value-objects/TextAlign";
 import type { SectionLayout } from "../domain/document/value-objects/SectionLayout";
 import type { AssetRef } from "../domain/document/entities/Image";
-import { isTable } from "../domain/document/entities";
+import { isTable, isTextBlock, isImage, isParagraph, isHeading } from "../domain/document/entities";
 import { HistoryManager } from "./HistoryManager";
 import { SelectionManager, type Selection } from "./SelectionManager";
 import { ActiveMarksManager } from "./ActiveMarksManager";
+import { ClipboardPayload, type ClipboardBlock, serializeToHtml } from "../domain/clipboard";
 
 export class EditorService {
   private document: Document | null = null;
@@ -493,6 +494,299 @@ export class EditorService {
     }
     
     this._notify();
+  }
+
+  getSelectionGlobalRange(): { start: number; end: number } | null {
+    if (!this.document) return null;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return null;
+    
+    const anchorRange = this.document.getBlockRange(sel.anchor.blockId);
+    const focusRange = this.document.getBlockRange(sel.focus.blockId);
+    
+    if (!anchorRange || !focusRange) return null;
+    
+    const anchorGlobal = anchorRange.start + sel.anchor.offset;
+    const focusGlobal = focusRange.start + sel.focus.offset;
+    
+    return {
+      start: Math.min(anchorGlobal, focusGlobal),
+      end: Math.max(anchorGlobal, focusGlobal),
+    };
+  }
+
+  getClipboardData(): { json: ClipboardPayload; html: string; text: string } | null {
+    if (!this.document) return null;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return null;
+    
+    const range = this.getSelectionGlobalRange();
+    if (!range) return null;
+    
+    if (range.start === range.end) return null;
+    
+    const blocks = this.document.getBlocksInRange(range.start, range.end);
+    const clipboardBlocks: ClipboardBlock[] = [];
+    
+    for (const block of blocks) {
+      const clipboardBlock = this.blockToClipboardBlock(block, range.start, range.end);
+      if (clipboardBlock) {
+        clipboardBlocks.push(clipboardBlock);
+      }
+    }
+    
+    const payload = ClipboardPayload.create(clipboardBlocks);
+    
+    return {
+      json: payload,
+      html: serializeToHtml(payload),
+      text: ClipboardPayload.getTextContent(payload),
+    };
+  }
+
+  private blockToClipboardBlock(
+    block: Block,
+    rangeStart: number,
+    rangeEnd: number
+  ): ClipboardBlock | null {
+    if (isTextBlock(block)) {
+      const blockStart = block.textRange.start;
+      const blockEnd = block.textRange.end;
+      
+      const intersectStart = Math.max(blockStart, rangeStart);
+      const intersectEnd = Math.min(blockEnd, rangeEnd);
+      
+      if (intersectStart >= intersectEnd) return null;
+      
+      const localStart = intersectStart - blockStart;
+      const localEnd = intersectEnd - blockStart;
+      
+      const text = this.document!.getTextInRange(intersectStart, intersectEnd);
+      
+      const clippedMarks = block.marks
+        .map((mark) => {
+          const markStart = Math.max(mark.start, localStart);
+          const markEnd = Math.min(mark.end, localEnd);
+          if (markStart >= markEnd) return null;
+          return {
+            start: markStart - localStart,
+            end: markEnd - localStart,
+            attrs: mark.attrs.toJSON(),
+          };
+        })
+        .filter((m): m is NonNullable<typeof m> => m !== null);
+      
+      const result: ClipboardBlock = {
+        type: block.type,
+        text,
+        marks: clippedMarks,
+      };
+      
+      if (isHeading(block)) {
+        result.level = block.level;
+      }
+      if (block.textAlign) {
+        result.textAlign = block.textAlign;
+      }
+      
+      return result;
+    }
+    
+    if (isImage(block)) {
+      return {
+        type: "image",
+        assetName: block.assetRef.name,
+        alt: block.alt,
+        size: block.size,
+        bytes: block.assetRef.bytes,
+      };
+    }
+    
+    return null;
+  }
+
+  deleteSelection(): void {
+    if (!this.document) return;
+    
+    const range = this.getSelectionGlobalRange();
+    if (!range || range.start === range.end) return;
+    
+    this._pushHistory();
+    
+    const blocks = this.document.getBlocksInRange(range.start, range.end);
+    
+    if (blocks.length === 1) {
+      const block = blocks[0];
+      if (block && isTextBlock(block)) {
+        const blockStart = block.textRange.start;
+        const localStart = range.start - blockStart;
+        const localEnd = range.end - blockStart;
+        this.document.deleteText(block.id, localStart, localEnd - localStart);
+        
+        this.selectionManager.setSelection({
+          anchor: { blockId: block.id, offset: localStart },
+          focus: { blockId: block.id, offset: localStart },
+        });
+      }
+    } else {
+      this.document.deleteRange(range.start, range.end);
+      
+      const resolved = this.document.findBlockAtPosition(range.start);
+      if (resolved && isTextBlock(resolved.block)) {
+        this.selectionManager.setSelection({
+          anchor: { blockId: resolved.block.id, offset: resolved.localOffset },
+          focus: { blockId: resolved.block.id, offset: resolved.localOffset },
+        });
+      }
+    }
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  insertFromClipboard(payload: ClipboardPayload): void {
+    if (!this.document) return;
+    if (ClipboardPayload.isEmpty(payload)) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    if (!this.selectionManager.isCollapsed) {
+      this.deleteSelection();
+    }
+    
+    const currentSel = this.selectionManager.selection;
+    if (!currentSel) return;
+    
+    let insertBlockId = currentSel.anchor.blockId;
+    let insertOffset = currentSel.anchor.offset;
+    
+    for (const block of payload.blocks) {
+      if (block.type === "image") {
+        const assetRef: AssetRef = {
+          name: block.assetName,
+          targetPos: 0,
+          alt: block.alt,
+          size: block.size,
+          bytes: block.bytes,
+        };
+        this.document.insertImageBlock(insertBlockId, assetRef, block.alt, block.size);
+      } else {
+        const textBlock = this.document.getBlock(insertBlockId);
+        if (textBlock && isTextBlock(textBlock) && block.text.length > 0) {
+          this.document.insertText(insertBlockId, insertOffset, block.text);
+          
+          if (block.marks.length > 0) {
+            for (const mark of block.marks) {
+              const attrs = TextAttributes.from(mark.attrs ?? {});
+              this.document.formatText(insertBlockId, insertOffset + mark.start, insertOffset + mark.end, attrs);
+            }
+          }
+          
+          insertOffset += block.text.length;
+        }
+      }
+    }
+    
+    this.selectionManager.setSelection({
+      anchor: { blockId: insertBlockId, offset: insertOffset },
+      focus: { blockId: insertBlockId, offset: insertOffset },
+    });
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  insertPlainText(text: string): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    if (!this.selectionManager.isCollapsed) {
+      this.deleteSelection();
+    }
+    
+    const currentSel = this.selectionManager.selection;
+    if (!currentSel) return;
+    
+    let insertBlockId = currentSel.anchor.blockId;
+    let insertOffset = currentSel.anchor.offset;
+    
+    const lines = text.split("\n");
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      if (i > 0) {
+        this.document.splitBlock(insertBlockId, insertOffset);
+        const blockRange = this.document.getBlockRange(insertBlockId);
+        if (blockRange) {
+          const resolved = this.document.findBlockAtPosition(blockRange.start + insertOffset + 1);
+          if (resolved) {
+            insertBlockId = resolved.block.id;
+            insertOffset = 0;
+          }
+        }
+      }
+      
+      if (line && line.length > 0) {
+        this.document.insertText(insertBlockId, insertOffset, line);
+        insertOffset += line.length;
+      }
+    }
+    
+    this.selectionManager.setSelection({
+      anchor: { blockId: insertBlockId, offset: insertOffset },
+      focus: { blockId: insertBlockId, offset: insertOffset },
+    });
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  insertImageFromDataUrl(dataUrl: string, filename: string): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!match) return;
+    
+    const ext = match[1] === "jpeg" ? "jpg" : match[1];
+    let bytes: number[];
+    try {
+      const binary = atob(match[2]!);
+      bytes = Array.from({ length: binary.length }, (_, i) => binary.charCodeAt(i));
+    } catch {
+      return;
+    }
+    
+    const assetName = `pasted-${crypto.randomUUID()}.${ext}`;
+    
+    const img = new Image();
+    img.onload = () => {
+      const width = img.naturalWidth || 200;
+      const height = img.naturalHeight || 200;
+      
+      const assetRef: AssetRef = {
+        name: assetName,
+        targetPos: 0,
+        alt: filename || "Pasted image",
+        size: [width, height],
+        bytes,
+      };
+      
+      this.insertImageBlock(assetRef, assetRef.alt, [width, height]);
+    };
+    img.src = dataUrl;
   }
 
   subscribe(listener: () => void): () => void {

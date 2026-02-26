@@ -918,4 +918,67 @@ export class Document {
     }
     return result;
   }
+
+  getBlocksInRange(startOffset: number, endOffset: number): Block[] {
+    if (startOffset >= endOffset) return [];
+    
+    const result: Block[] = [];
+    
+    for (const section of this.state.sections) {
+      for (const block of section.children) {
+        const blockResult = this.collectBlocksInRange(block, startOffset, endOffset);
+        result.push(...blockResult);
+      }
+    }
+    
+    return result;
+  }
+
+  private collectBlocksInRange(block: Block, startOffset: number, endOffset: number): Block[] {
+    const result: Block[] = [];
+    
+    if (isTextBlock(block)) {
+      const blockStart = block.textRange.start;
+      const blockEnd = block.textRange.end;
+      
+      if (blockEnd > startOffset && blockStart < endOffset) {
+        result.push(block);
+      }
+    } else if (isImage(block)) {
+      if (block.bufferPosition >= startOffset && block.bufferPosition < endOffset) {
+        result.push(block);
+      }
+    } else if (isTable(block)) {
+      const tableStart = block.textRange.start;
+      const tableEnd = block.textRange.end;
+      
+      if (tableEnd > startOffset && tableStart < endOffset) {
+        result.push(block);
+      }
+    } else if (isBlockquote(block)) {
+      for (const child of block.children) {
+        result.push(...this.collectBlocksInRange(child, startOffset, endOffset));
+      }
+    } else if (isList(block)) {
+      for (const item of block.items) {
+        result.push(...this.collectBlocksInRange(item.content, startOffset, endOffset));
+      }
+    }
+    
+    return result;
+  }
+
+  getTextInRange(startOffset: number, endOffset: number): string {
+    if (startOffset >= endOffset) return "";
+    return this.state.buffer.getRange(startOffset, endOffset);
+  }
+
+  deleteRange(startOffset: number, endOffset: number): void {
+    if (startOffset >= endOffset) return;
+    
+    const length = endOffset - startOffset;
+    this.state.buffer.delete(startOffset, length);
+    this.shiftRangesAfter(startOffset, -length);
+    this.state.modifiedAt = Date.now();
+  }
 }

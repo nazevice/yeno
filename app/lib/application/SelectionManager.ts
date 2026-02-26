@@ -10,6 +10,11 @@ export interface Selection {
   focus: SelectionPoint;
 }
 
+export interface GlobalSelectionRange {
+  start: number;
+  end: number;
+}
+
 export class SelectionManager {
   private _selection: Selection | null = null;
 
@@ -67,5 +72,22 @@ export class SelectionManager {
     if (end) {
       this._selection = { anchor: end, focus: end };
     }
+  }
+
+  isBackward(getBlockRange: (blockId: BlockId) => { start: number; end: number } | null): boolean {
+    if (!this._selection) return false;
+    if (this._selection.anchor.blockId === this._selection.focus.blockId) {
+      return this._selection.anchor.offset > this._selection.focus.offset;
+    }
+    
+    const anchorRange = getBlockRange(this._selection.anchor.blockId);
+    const focusRange = getBlockRange(this._selection.focus.blockId);
+    
+    if (!anchorRange || !focusRange) return false;
+    
+    const anchorGlobal = anchorRange.start + this._selection.anchor.offset;
+    const focusGlobal = focusRange.start + this._selection.focus.offset;
+    
+    return anchorGlobal > focusGlobal;
   }
 }

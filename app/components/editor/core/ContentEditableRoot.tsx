@@ -7,6 +7,9 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import { useEditorContext } from "./EditorContext";
 import { getSelectionOffsets, getTextContentFromDOM, applySelectionFromOffsets } from "./domSelection";
 import { renderDocument } from "../DocumentRenderer";
+import { parseHtml } from "~/lib/domain/clipboard";
+
+const CLIPBOARD_MIME_TYPE = "application/x-yeno-document";
 
 interface ContentEditableRootProps {
   className?: string;
@@ -268,6 +271,91 @@ function ContentEditableRootInner({
     isComposingRef.current = false;
   }, []);
 
+  const handleCopy = useCallback(
+    (e: React.ClipboardEvent) => {
+      e.preventDefault();
+      
+      const clipboardData = service.getClipboardData();
+      if (!clipboardData) return;
+      
+      e.clipboardData.setData(CLIPBOARD_MIME_TYPE, JSON.stringify(clipboardData.json));
+      e.clipboardData.setData("text/html", clipboardData.html);
+      e.clipboardData.setData("text/plain", clipboardData.text);
+    },
+    [service],
+  );
+
+  const handleCut = useCallback(
+    (e: React.ClipboardEvent) => {
+      e.preventDefault();
+      
+      const clipboardData = service.getClipboardData();
+      if (!clipboardData) return;
+      
+      e.clipboardData.setData(CLIPBOARD_MIME_TYPE, JSON.stringify(clipboardData.json));
+      e.clipboardData.setData("text/html", clipboardData.html);
+      e.clipboardData.setData("text/plain", clipboardData.text);
+      
+      service.deleteSelection();
+    },
+    [service],
+  );
+
+  const handlePasteEvent = useCallback(
+    (e: React.ClipboardEvent) => {
+      e.preventDefault();
+      
+      if (onPaste) {
+        onPaste(e);
+        return;
+      }
+      
+      const customData = e.clipboardData.getData(CLIPBOARD_MIME_TYPE);
+      if (customData) {
+        try {
+          const payload = JSON.parse(customData);
+          service.insertFromClipboard(payload);
+          return;
+        } catch {
+          // Fall through to other formats
+        }
+      }
+      
+      const files = e.clipboardData.files;
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file && file.type.startsWith("image/")) {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const dataUrl = reader.result as string;
+              if (dataUrl) {
+                service.insertImageFromDataUrl(dataUrl, file.name);
+              }
+            };
+            reader.readAsDataURL(file);
+          }
+        }
+        return;
+      }
+      
+      const html = e.clipboardData.getData("text/html");
+      if (html) {
+        const payload = parseHtml(html);
+        if (!payload.blocks.every(b => b.type === "paragraph" && b.text === "")) {
+          service.insertFromClipboard(payload);
+          return;
+        }
+      }
+      
+      const text = e.clipboardData.getData("text/plain");
+      if (text) {
+        service.insertPlainText(text);
+      }
+    },
+    [service, onPaste],
+  );
+
   return (
     <div
       ref={rootRef}
@@ -282,7 +370,9 @@ function ContentEditableRootInner({
       onKeyDownCapture={handleKeyDown}
       onCompositionStart={handleCompositionStart}
       onCompositionEnd={handleCompositionEnd}
-      onPaste={onPaste}
+      onCopy={handleCopy}
+      onCut={handleCut}
+      onPaste={handlePasteEvent}
     />
   );
 }
