@@ -575,6 +575,59 @@ export class EditorService {
     return marks?.href ?? null;
   }
 
+  setColor(color: string): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    if (this.selectionManager.isCollapsed) {
+      const currentMarks = this.activeMarksManager.marks ?? TextAttributes.empty;
+      this.activeMarksManager.setMarks(currentMarks.withColor(color));
+    } else {
+      const start = this.selectionManager.getStartPoint()!;
+      const end = this.selectionManager.getEndPoint()!;
+      
+      if (start.blockId === end.blockId) {
+        this.formatText(TextAttributes.from({ color }));
+      }
+    }
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  removeColor(): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    if (this.selectionManager.isCollapsed) {
+      const currentMarks = this.activeMarksManager.marks ?? TextAttributes.empty;
+      this.activeMarksManager.setMarks(currentMarks.removeColor());
+    } else {
+      const start = this.selectionManager.getStartPoint()!;
+      const end = this.selectionManager.getEndPoint()!;
+      
+      if (start.blockId === end.blockId) {
+        this.formatText(TextAttributes.from({ color: undefined }));
+      }
+    }
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  getActiveColor(): string | null {
+    const marks = this.activeMarks;
+    return marks?.color ?? null;
+  }
+
   getSelectionGlobalRange(): { start: number; end: number } | null {
     if (!this.document) return null;
     

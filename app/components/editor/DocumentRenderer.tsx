@@ -153,6 +153,9 @@ function applyTextWithMarks(
       span.appendChild(node);
       node = span;
     }
+    if (mark.attrs.color) {
+      node.style.color = mark.attrs.color;
+    }
     node.appendChild(document.createTextNode(slice));
     container.appendChild(node);
     pos = mark.end;

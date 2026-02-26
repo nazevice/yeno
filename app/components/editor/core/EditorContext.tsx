@@ -29,7 +29,7 @@ export interface EditorApi {
   canUndo: boolean;
   canRedo: boolean;
   registerUpdateListener: (listener: () => void) => () => void;
-  getActiveMarks: () => { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined; href?: string | undefined } | null;
+  getActiveMarks: () => { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined; href?: string | undefined; color?: string | undefined } | null;
   getSelection: () => Selection | null;
   getSelectionOffsets: () => { anchor: number; focus: number } | null;
   setSelectionFromOffsets: (anchor: number, focus: number) => void;
@@ -41,6 +41,9 @@ export interface EditorApi {
   setLink: (href: string) => void;
   removeLink: () => void;
   getActiveLink: () => string | null;
+  setColor: (color: string) => void;
+  removeColor: () => void;
+  getActiveColor: () => string | null;
 }
 
 type EditorContextValue = {
@@ -156,13 +159,14 @@ export function EditorProvider({
       getActiveMarks: () => {
         const marks = service.activeMarks;
         if (!marks) return null;
-        const result: { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined; href?: string | undefined } = {};
+        const result: { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined; href?: string | undefined; color?: string | undefined } = {};
         if (marks.bold !== undefined) result.bold = marks.bold;
         if (marks.italic !== undefined) result.italic = marks.italic;
         if (marks.underline !== undefined) result.underline = marks.underline;
         if (marks.font !== undefined) result.font = marks.font;
         if (marks.fontSize !== undefined) result.fontSize = marks.fontSize;
         if (marks.href !== undefined) result.href = marks.href;
+        if (marks.color !== undefined) result.color = marks.color;
         return result;
       },
       getSelection: () => service.selection,
@@ -193,6 +197,9 @@ export function EditorProvider({
       setLink: (href: string) => service.setLink(href),
       removeLink: () => service.removeLink(),
       getActiveLink: () => service.getActiveLink(),
+      setColor: (color: string) => service.setColor(color),
+      removeColor: () => service.removeColor(),
+      getActiveColor: () => service.getActiveColor(),
     };
   }, [service]);
 

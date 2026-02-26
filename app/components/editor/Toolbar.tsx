@@ -12,6 +12,7 @@ import type { EditorApi } from "./core/EditorContext";
 import { useEditor } from "./core/EditorContext";
 import { getSelectionOffsets } from "./core/domSelection";
 import { LinkDialog } from "./LinkDialog";
+import { ColorPalette } from "./ColorPalette";
 
 interface ToolbarProps {
   onInsertImage: () => void;
@@ -162,6 +163,8 @@ export function Toolbar({
   const [showSizePopover, setShowSizePopover] = useState(false);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [activeLinkUrl, setActiveLinkUrl] = useState<string | null>(null);
+  const [showColorPalette, setShowColorPalette] = useState(false);
+  const [activeColor, setActiveColor] = useState<string | null>(null);
   const [tableRows, setTableRows] = useState(3);
   const savedSelectionRef = useRef<{ anchor: number; focus: number } | null>(null);
   const [tableCols, setTableCols] = useState(4);
@@ -169,6 +172,7 @@ export function Toolbar({
   const insertMenuRef = useRef<HTMLDivElement>(null);
   const sizePopoverRef = useRef<HTMLDivElement>(null);
   const linkButtonRef = useRef<HTMLDivElement>(null);
+  const colorButtonRef = useRef<HTMLDivElement>(null);
 
   const run = (fn: (editor: EditorApi) => void) => {
     if (!editor) return;
@@ -361,6 +365,47 @@ export function Toolbar({
               setShowLinkDialog(false);
               setActiveLinkUrl(null);
             }}
+          />
+        </div>
+        <div className="relative" ref={colorButtonRef}>
+          <button
+            type="button"
+            className="toolbar-btn-minimal flex items-center gap-1"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              saveSelectionForFormat();
+              const currentColor = editor?.getActiveColor() ?? null;
+              setActiveColor(currentColor);
+              setShowColorPalette(true);
+            }}
+            title="Text Color"
+            data-testid="format-color"
+          >
+            <span>A</span>
+            <span
+              className="h-3.5 w-4 rounded-sm border border-zinc-300"
+              style={{ backgroundColor: activeColor || "#000000" }}
+            />
+          </button>
+          <ColorPalette
+            isOpen={showColorPalette}
+            currentColor={activeColor}
+            onSelectColor={(color) => {
+              if (color) {
+                run((e) => {
+                  e.setColor(color);
+                  e.focus();
+                });
+              } else {
+                run((e) => {
+                  e.removeColor();
+                  e.focus();
+                });
+              }
+              setShowColorPalette(false);
+              setActiveColor(color ?? null);
+            }}
+            onClose={() => setShowColorPalette(false)}
           />
         </div>
       </div>
