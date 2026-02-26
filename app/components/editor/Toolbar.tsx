@@ -11,6 +11,7 @@ import {
 import type { EditorApi } from "./core/EditorContext";
 import { useEditor } from "./core/EditorContext";
 import { getSelectionOffsets } from "./core/domSelection";
+import { LinkDialog } from "./LinkDialog";
 
 interface ToolbarProps {
   onInsertImage: () => void;
@@ -159,12 +160,15 @@ export function Toolbar({
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [showSizePopover, setShowSizePopover] = useState(false);
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [activeLinkUrl, setActiveLinkUrl] = useState<string | null>(null);
   const [tableRows, setTableRows] = useState(3);
   const savedSelectionRef = useRef<{ anchor: number; focus: number } | null>(null);
   const [tableCols, setTableCols] = useState(4);
   const [tableIncludeHeaders, setTableIncludeHeaders] = useState(true);
   const insertMenuRef = useRef<HTMLDivElement>(null);
   const sizePopoverRef = useRef<HTMLDivElement>(null);
+  const linkButtonRef = useRef<HTMLDivElement>(null);
 
   const run = (fn: (editor: EditorApi) => void) => {
     if (!editor) return;
@@ -317,6 +321,48 @@ export function Toolbar({
         >
           U
         </button>
+        <div className="relative" ref={linkButtonRef}>
+          <button
+            type="button"
+            className="toolbar-btn-minimal"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              saveSelectionForFormat();
+              const currentLink = editor?.getActiveLink() ?? null;
+              setActiveLinkUrl(currentLink);
+              setShowLinkDialog(true);
+            }}
+            title="Insert/Edit Link"
+            data-testid="format-link"
+            data-active={!!activeLinkUrl}
+          >
+            Link
+          </button>
+          <LinkDialog
+            isOpen={showLinkDialog}
+            initialUrl={activeLinkUrl || ""}
+            onConfirm={(url) => {
+              run((e) => {
+                e.setLink(url);
+                e.focus();
+              });
+              setShowLinkDialog(false);
+              setActiveLinkUrl(null);
+            }}
+            onRemove={() => {
+              run((e) => {
+                e.removeLink();
+                e.focus();
+              });
+              setShowLinkDialog(false);
+              setActiveLinkUrl(null);
+            }}
+            onClose={() => {
+              setShowLinkDialog(false);
+              setActiveLinkUrl(null);
+            }}
+          />
+        </div>
       </div>
       <span className="toolbar-divider" />
 

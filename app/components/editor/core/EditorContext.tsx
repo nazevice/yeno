@@ -29,7 +29,7 @@ export interface EditorApi {
   canUndo: boolean;
   canRedo: boolean;
   registerUpdateListener: (listener: () => void) => () => void;
-  getActiveMarks: () => { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
+  getActiveMarks: () => { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined; href?: string | undefined } | null;
   getSelection: () => Selection | null;
   getSelectionOffsets: () => { anchor: number; focus: number } | null;
   setSelectionFromOffsets: (anchor: number, focus: number) => void;
@@ -38,6 +38,9 @@ export interface EditorApi {
   deleteForward: () => void;
   splitBlock: () => void;
   mergeBlocks: () => void;
+  setLink: (href: string) => void;
+  removeLink: () => void;
+  getActiveLink: () => string | null;
 }
 
 type EditorContextValue = {
@@ -153,12 +156,13 @@ export function EditorProvider({
       getActiveMarks: () => {
         const marks = service.activeMarks;
         if (!marks) return null;
-        const result: { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } = {};
+        const result: { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined; href?: string | undefined } = {};
         if (marks.bold !== undefined) result.bold = marks.bold;
         if (marks.italic !== undefined) result.italic = marks.italic;
         if (marks.underline !== undefined) result.underline = marks.underline;
         if (marks.font !== undefined) result.font = marks.font;
         if (marks.fontSize !== undefined) result.fontSize = marks.fontSize;
+        if (marks.href !== undefined) result.href = marks.href;
         return result;
       },
       getSelection: () => service.selection,
@@ -186,6 +190,9 @@ export function EditorProvider({
       deleteForward: () => service.delete(),
       splitBlock: () => service.splitBlock(),
       mergeBlocks: () => service.mergeBlocks(),
+      setLink: (href: string) => service.setLink(href),
+      removeLink: () => service.removeLink(),
+      getActiveLink: () => service.getActiveLink(),
     };
   }, [service]);
 

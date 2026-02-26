@@ -522,6 +522,59 @@ export class EditorService {
     this._notify();
   }
 
+  setLink(href: string): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    if (this.selectionManager.isCollapsed) {
+      const currentMarks = this.activeMarksManager.marks ?? TextAttributes.empty;
+      this.activeMarksManager.setMarks(currentMarks.withHref(href));
+    } else {
+      const start = this.selectionManager.getStartPoint()!;
+      const end = this.selectionManager.getEndPoint()!;
+      
+      if (start.blockId === end.blockId) {
+        this.formatText(TextAttributes.from({ href }));
+      }
+    }
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  removeLink(): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    if (this.selectionManager.isCollapsed) {
+      const currentMarks = this.activeMarksManager.marks ?? TextAttributes.empty;
+      this.activeMarksManager.setMarks(currentMarks.removeLink());
+    } else {
+      const start = this.selectionManager.getStartPoint()!;
+      const end = this.selectionManager.getEndPoint()!;
+      
+      if (start.blockId === end.blockId) {
+        this.formatText(TextAttributes.from({ href: undefined }));
+      }
+    }
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
+  getActiveLink(): string | null {
+    const marks = this.activeMarks;
+    return marks?.href ?? null;
+  }
+
   getSelectionGlobalRange(): { start: number; end: number } | null {
     if (!this.document) return null;
     

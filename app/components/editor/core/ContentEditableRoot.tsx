@@ -361,6 +361,21 @@ function ContentEditableRootInner({
     [service, onPaste],
   );
 
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest("a");
+      if (link && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const href = link.getAttribute("href");
+        if (href) {
+          window.open(href, "_blank", "noopener,noreferrer");
+        }
+      }
+    },
+    [],
+  );
+
   return (
     <div
       ref={rootRef}
@@ -378,6 +393,7 @@ function ContentEditableRootInner({
       onCopy={handleCopy}
       onCut={handleCut}
       onPaste={handlePasteEvent}
+      onClick={handleClick}
     />
   );
 }

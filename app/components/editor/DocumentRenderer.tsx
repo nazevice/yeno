@@ -114,7 +114,20 @@ function applyTextWithMarks(
     
     let node: HTMLElement = document.createElement("span");
     
-    if (mark.attrs.underline) {
+    if (mark.attrs.href) {
+      const a = document.createElement("a");
+      const href = mark.attrs.href;
+      a.href = href.startsWith("mailto:") || href.startsWith("http://") || href.startsWith("https://") ? href : (href.includes("@") ? `mailto:${href}` : `https://${href}`);
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.style.color = "#2563eb";
+      a.style.textDecoration = "underline";
+      a.style.cursor = "pointer";
+      a.title = `${a.href} (Ctrl+click to open)`;
+      a.appendChild(node);
+      node = a;
+    }
+    if (mark.attrs.underline && !mark.attrs.href) {
       const u = document.createElement("u");
       u.appendChild(node);
       node = u;
