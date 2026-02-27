@@ -1,11 +1,12 @@
 import type { PieceChunk } from "../../domain/document/buffer/TextBufferTypes";
 import type { AssetRef } from "../../domain/document/entities/Image";
 import type { Section } from "../../domain/document/entities/Section";
+import type { DocumentMetadata } from "../../domain/document/DocumentSnapshot";
 
 export interface DocumentPayload {
   baseText: string;
   chunks: PieceChunk[];
-  metadata: { custom?: Record<string, unknown> | undefined };
+  metadata: DocumentMetadata;
   versions: unknown[];
   assets: AssetRef[];
   documentTree: {

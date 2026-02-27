@@ -16,7 +16,7 @@ import { Paragraph } from "./entities/Paragraph";
 import type { TableCellChild } from "./entities/Table";
 import { DocumentEvents } from "./events";
 import type { TextInserted, TextDeleted, BlockSplit, BlocksMerged, BlockInserted, BlockDeleted, BlockMoved, TextFormatted, BlockTypeChanged, SectionLayoutChanged } from "./events";
-import type { DocumentSnapshot, DocumentTree } from "./DocumentSnapshot";
+import type { DocumentSnapshot, DocumentTree, DocumentMetadata } from "./DocumentSnapshot";
 
 export type { DocumentId, BlockId, SectionId };
 
@@ -24,6 +24,7 @@ interface DocumentState {
   id: DocumentId;
   sections: Section[];
   buffer: TextBuffer;
+  metadata: DocumentMetadata;
   createdAt: number;
   modifiedAt: number;
 }
@@ -56,6 +57,7 @@ export class Document {
       id,
       sections: [section],
       buffer,
+      metadata: {},
       createdAt: Date.now(),
       modifiedAt: Date.now(),
     });
@@ -80,6 +82,7 @@ export class Document {
       id: snapshot.id,
       sections,
       buffer,
+      metadata: snapshot.metadata ?? {},
       createdAt: snapshot.createdAt,
       modifiedAt: snapshot.modifiedAt,
     });
@@ -677,9 +680,19 @@ export class Document {
         },
       },
       bufferContent: this.state.buffer.toContent(),
+      metadata: this.state.metadata,
       createdAt: this.state.createdAt,
       modifiedAt: this.state.modifiedAt,
     };
+  }
+
+  get metadata(): DocumentMetadata {
+    return this.state.metadata;
+  }
+
+  setMetadata(metadata: DocumentMetadata): void {
+    this.state = { ...this.state, metadata };
+    this.state.modifiedAt = Date.now();
   }
 
   pullEvents(): DocumentEvents[] {

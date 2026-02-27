@@ -10,6 +10,7 @@ import { applySelectionFromOffsets } from "./core/domSelection";
 import { ImageResizePlugin } from "./plugins/ImageResizePlugin";
 import { TablePlugin } from "./plugins/TablePlugin";
 import { DebugPanel } from "./DebugPanel";
+import { exportToPdf } from "~/lib/export/PdfExporter";
 
 function assetToDataUrl(asset: AssetRef | null): string | null {
   if (!asset?.bytes?.length) return null;
@@ -142,6 +143,21 @@ export function EditorShell() {
     fileInputRef.current?.click();
   }, []);
 
+  const onExportPdf = useCallback(() => {
+    const doc = service.getDocument();
+    if (doc) {
+      const snapshot = doc.toSnapshot();
+      const assetMap = new Map<string, string>();
+      for (const asset of assets) {
+        const dataUrl = assetToDataUrl(asset);
+        if (dataUrl) {
+          assetMap.set(asset.name, dataUrl);
+        }
+      }
+      exportToPdf(snapshot, assetMap);
+    }
+  }, [service, assets]);
+
   useEffect(() => {
     const render = () => {
       const root = rootRef.current;
@@ -182,10 +198,25 @@ export function EditorShell() {
         e.preventDefault();
         console.log("Document saved");
       }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "e") {
+        e.preventDefault();
+        const doc = service.getDocument();
+        if (doc) {
+          const snapshot = doc.toSnapshot();
+          const assetMap = new Map<string, string>();
+          for (const asset of assets) {
+            const dataUrl = assetToDataUrl(asset);
+            if (dataUrl) {
+              assetMap.set(asset.name, dataUrl);
+            }
+          }
+          exportToPdf(snapshot, assetMap);
+        }
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [service, assets]);
 
   useEffect(() => {
     const container = paginatedContainerRef.current;
@@ -259,6 +290,7 @@ export function EditorShell() {
         <div className="flex flex-1 flex-col gap-3">
           <Toolbar
             onInsertImage={onInsertImage}
+            onExportPdf={onExportPdf}
             pageWidthPx={pageWidthPx}
             pageHeightPx={pageHeightPx}
             onPageWidthChange={setPageWidthPx}

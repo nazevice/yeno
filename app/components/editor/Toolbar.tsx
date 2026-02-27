@@ -16,6 +16,7 @@ import { ColorPalette } from "./ColorPalette";
 
 interface ToolbarProps {
   onInsertImage: () => void;
+  onExportPdf: () => void;
   pageWidthPx: number;
   pageHeightPx: number;
   onPageWidthChange: (px: number) => void;
@@ -125,6 +126,7 @@ function getSelectionStyleSnapshot(editor: EditorApi | null): SelectionStyle {
 
 export function Toolbar({
   onInsertImage,
+  onExportPdf,
   pageWidthPx,
   pageHeightPx,
   onPageWidthChange,
@@ -637,7 +639,14 @@ export function Toolbar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {/* Debug toggle */}
+        <button
+          className="toolbar-btn-minimal"
+          onClick={onExportPdf}
+          title="Export to PDF (Ctrl+Shift+E)"
+        >
+          Export PDF
+        </button>
+
         {onToggleDebugPanel && (
           <button
             className={`toolbar-btn-minimal ${showDebugPanel ? "bg-zinc-200" : ""}`}

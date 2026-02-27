@@ -35,6 +35,7 @@ export class DocumentMapper {
         baseText: payload.baseText,
         chunks: payload.chunks,
       },
+      metadata: payload.metadata ?? {},
       createdAt: Date.now(),
       modifiedAt: Date.now(),
     };
@@ -44,7 +45,7 @@ export class DocumentMapper {
     return {
       baseText: snapshot.bufferContent.baseText,
       chunks: [...snapshot.bufferContent.chunks],
-      metadata: {},
+      metadata: snapshot.metadata ?? {},
       versions: [],
       assets: [],
       documentTree: {
