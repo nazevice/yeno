@@ -9,10 +9,11 @@ import type { TextBufferContent } from "./buffer/TextBufferTypes";
 import { Section } from "./entities/Section";
 import type { Heading } from "./entities/Heading";
 import type { Block, TextBlock } from "./entities";
-import { isTextBlock, isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "./entities";
+import { isTextBlock, isParagraph, isHeading, isImage, isTable, isList, isBlockquote, isToc } from "./entities";
 import { Image, type AssetRef } from "./entities/Image";
 import { Table, TableRow, TableCell, TABLE_CELL_SEPARATOR } from "./entities/Table";
 import { Paragraph } from "./entities/Paragraph";
+import { TocBlock } from "./entities/TocBlock";
 import type { TableCellChild } from "./entities/Table";
 import { DocumentEvents } from "./events";
 import type { TextInserted, TextDeleted, BlockSplit, BlocksMerged, BlockInserted, BlockDeleted, BlockMoved, TextFormatted, BlockTypeChanged, SectionLayoutChanged } from "./events";
@@ -596,6 +597,38 @@ export class Document {
     this.updateSectionChildren(section.id, newChildren);
     
     const event = DocumentEvents.blockInserted(this.state.id, section.id, newBlockIndex, tableBlock);
+    this.eventsList.push(event);
+    this.state.modifiedAt = Date.now();
+    
+    return event;
+  }
+
+  insertTocBlock(afterBlockId: BlockId, title?: string): BlockInserted | null {
+    const location = this.findSectionAndBlockIndex(afterBlockId);
+    if (!location) return null;
+    
+    const { section, blockIndex } = location;
+    const afterBlock = section.children[blockIndex];
+    if (!afterBlock) return null;
+    
+    const afterBlockRange = this.getBlockRange(afterBlockId);
+    if (!afterBlockRange) return null;
+    
+    const insertPos = afterBlockRange.end;
+    const blockId = BlockId.create();
+    
+    this.state.buffer.insert(insertPos, "\n\uFFFC");
+    
+    const tocBlock = TocBlock.create(blockId, title);
+    
+    this.shiftRangesAfter(insertPos, 2, afterBlockId);
+    
+    const newBlockIndex = blockIndex + 1;
+    const newChildren = [...section.children];
+    newChildren.splice(newBlockIndex, 0, tocBlock);
+    this.updateSectionChildren(section.id, newChildren);
+    
+    const event = DocumentEvents.blockInserted(this.state.id, section.id, newBlockIndex, tocBlock);
     this.eventsList.push(event);
     this.state.modifiedAt = Date.now();
     

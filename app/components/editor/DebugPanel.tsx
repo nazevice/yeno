@@ -11,6 +11,7 @@ interface DebugPanelProps {
 interface SerializableBlock {
   id: string;
   type: string;
+  level?: number;
   textRange: { start: number; end: number; length: number };
   marks: number;
   text?: string;
@@ -23,7 +24,7 @@ interface SerializableSection {
 }
 
 function serializeBlock(block: unknown, doc: Document): SerializableBlock {
-  const b = block as { id: BlockIdType; type: string; textRange?: { start: number; end: number; length: number }; marks: unknown[] };
+  const b = block as { id: BlockIdType; type: string; level?: number; textRange?: { start: number; end: number; length: number }; marks: unknown[] };
   const result: SerializableBlock = {
     id: b.id as string,
     type: b.type,
@@ -36,6 +37,9 @@ function serializeBlock(block: unknown, doc: Document): SerializableBlock {
       : { start: 0, end: 0, length: 0 },
     marks: b.marks?.length ?? 0,
   };
+  if (b.level !== undefined) {
+    result.level = b.level;
+  }
 
   if (b.type === "image") {
     const imgBlock = block as { assetRef: { name: string }; alt: string; size: [number, number] };

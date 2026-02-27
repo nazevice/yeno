@@ -5,10 +5,12 @@
 
 import { DEFAULT_FONT } from "~/lib/doc/fonts";
 import type { Document as DomainDocument } from "~/lib/domain/document/Document";
-import type { Block, Paragraph, Heading, Table, Image, List, Blockquote } from "~/lib/domain/document/entities";
+import type { Block, Paragraph, Heading, Table, Image, List, Blockquote, TocBlock } from "~/lib/domain/document/entities";
 import { TABLE_CELL_SEPARATOR } from "~/lib/domain/document/entities/Table";
 import type { FormattingMark } from "~/lib/domain/document/value-objects/FormattingMark";
-import { isParagraph, isHeading, isImage, isTable, isList, isBlockquote } from "~/lib/domain/document/entities";
+import { isParagraph, isHeading, isImage, isTable, isList, isBlockquote, isToc } from "~/lib/domain/document/entities";
+import { resolveHeadingNumbers, getHeadingList } from "~/lib/domain/document/HeadingNumberingResolver";
+import type { BlockId } from "~/lib/domain/shared/NodeId";
 
 
 export function renderDocument(
@@ -19,10 +21,11 @@ export function renderDocument(
   root.innerHTML = "";
   
   const buffer = doc.getBuffer();
+  const headingNumbers = resolveHeadingNumbers(doc);
   
   for (const section of doc.sections) {
     for (const block of section.children) {
-      const el = renderBlock(block, doc, buffer, getAssetDataUrl);
+      const el = renderBlock(block, doc, buffer, getAssetDataUrl, headingNumbers);
       if (el) {
         root.appendChild(el);
       }
@@ -40,25 +43,29 @@ function renderBlock(
   block: Block,
   doc: DomainDocument,
   buffer: { getRange: (start: number, end: number) => string },
-  getAssetDataUrl?: (name: string) => string | null,
+  getAssetDataUrl: ((name: string) => string | null) | undefined,
+  headingNumbers: Map<BlockId, string>,
 ): HTMLElement | null {
   if (isParagraph(block)) {
     return renderParagraph(block, buffer);
   }
   if (isHeading(block)) {
-    return renderHeading(block, buffer);
+    return renderHeading(block, buffer, headingNumbers);
+  }
+  if (isToc(block)) {
+    return renderToc(block, doc, buffer, headingNumbers);
   }
   if (isImage(block)) {
     return renderImage(block, getAssetDataUrl);
   }
   if (isTable(block)) {
-    return renderTable(block, doc, buffer, getAssetDataUrl);
+    return renderTable(block, doc, buffer, getAssetDataUrl, headingNumbers);
   }
   if (isBlockquote(block)) {
-    return renderBlockquote(block, doc, buffer, getAssetDataUrl);
+    return renderBlockquote(block, doc, buffer, getAssetDataUrl, headingNumbers);
   }
   if (isList(block)) {
-    return renderList(block, doc, buffer, getAssetDataUrl);
+    return renderList(block, doc, buffer, getAssetDataUrl, headingNumbers);
   }
   return null;
 }
@@ -77,19 +84,90 @@ function renderParagraph(node: Paragraph, buffer: { getRange: (start: number, en
   return p;
 }
 
-function renderHeading(node: Heading, buffer: { getRange: (start: number, end: number) => string }): HTMLHeadingElement {
+function renderHeading(node: Heading, buffer: { getRange: (start: number, end: number) => string }, headingNumbers: Map<BlockId, string>): HTMLHeadingElement {
   const tag = `h${node.level}` as "h1" | "h2" | "h3";
   const el = document.createElement(tag);
+  const headingId = `heading-${node.id}`;
+  el.id = headingId;
   el.setAttribute("data-node-id", node.id.toString());
+  
+  const number = headingNumbers.get(node.id);
+  if (number) {
+    const numSpan = document.createElement("span");
+    numSpan.className = "heading-number";
+    numSpan.textContent = number + ".";
+    el.appendChild(numSpan);
+    el.appendChild(document.createTextNode(" "));
+  }
+  
   const text = buffer.getRange(node.textRange.start, node.textRange.end);
   applyTextWithMarks(el, text, node.marks);
   if (node.textAlign) {
     el.style.textAlign = node.textAlign;
   }
-  if (!el.childNodes.length) {
-    el.innerHTML = "<br>";
+  if (!el.childNodes.length || (number && el.childNodes.length === 2)) {
+    el.appendChild(document.createElement("br"));
   }
   return el;
+}
+
+function renderToc(node: TocBlock, doc: DomainDocument, buffer: { getRange: (start: number, end: number) => string }, headingNumbers: Map<BlockId, string>): HTMLElement {
+  const container = document.createElement("nav");
+  container.setAttribute("data-node-id", node.id.toString());
+  container.setAttribute("data-type", "toc");
+  container.className = "toc-block";
+  
+  if (node.title) {
+    const title = document.createElement("h2");
+    title.textContent = node.title;
+    container.appendChild(title);
+  }
+  
+  const headings = getHeadingList(doc);
+  if (headings.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "text-zinc-400 italic";
+    empty.textContent = "No headings in document";
+    container.appendChild(empty);
+    return container;
+  }
+  
+  const list = document.createElement("ul");
+  list.className = "toc-list";
+  
+  for (const heading of headings) {
+    const li = document.createElement("li");
+    li.className = `toc-item toc-level-${heading.level}`;
+    
+    const a = document.createElement("a");
+    a.href = `#heading-${heading.id}`;
+    a.className = "toc-link";
+    
+    const numSpan = document.createElement("span");
+    numSpan.className = "toc-number";
+    numSpan.textContent = heading.number;
+    a.appendChild(numSpan);
+    a.appendChild(document.createTextNode(" "));
+    
+    const textSpan = document.createElement("span");
+    textSpan.className = "toc-text";
+    textSpan.textContent = heading.text;
+    a.appendChild(textSpan);
+    
+    a.onclick = (e) => {
+      e.preventDefault();
+      const target = document.getElementById(`heading-${heading.id}`);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+    
+    li.appendChild(a);
+    list.appendChild(li);
+  }
+  
+  container.appendChild(list);
+  return container;
 }
 
 function applyTextWithMarks(
@@ -200,7 +278,8 @@ function renderTable(
   node: Table,
   doc: DomainDocument,
   buffer: { getRange: (start: number, end: number) => string },
-  getAssetDataUrl?: (name: string) => string | null,
+  getAssetDataUrl: ((name: string) => string | null) | undefined,
+  headingNumbers: Map<BlockId, string>,
 ): HTMLTableElement {
   const table = document.createElement("table");
   table.className = "editor-table w-full border-collapse my-2";
@@ -214,7 +293,7 @@ function renderTable(
       td.setAttribute("contenteditable", "true");
       td.setAttribute("data-cell-id", cell.id.toString());
       for (const child of cell.children) {
-        const el = renderBlock(child, doc, buffer, getAssetDataUrl);
+        const el = renderBlock(child, doc, buffer, getAssetDataUrl, headingNumbers);
         if (el) td.appendChild(el);
       }
       if (!td.childNodes.length) td.innerHTML = "<br>";
@@ -229,11 +308,12 @@ function renderBlockquote(
   block: Blockquote,
   doc: DomainDocument,
   buffer: { getRange: (start: number, end: number) => string },
-  getAssetDataUrl?: (name: string) => string | null,
+  getAssetDataUrl: ((name: string) => string | null) | undefined,
+  headingNumbers: Map<BlockId, string>,
 ): HTMLQuoteElement {
   const q = document.createElement("blockquote");
   for (const child of block.children) {
-    const el = renderBlock(child, doc, buffer, getAssetDataUrl);
+    const el = renderBlock(child, doc, buffer, getAssetDataUrl, headingNumbers);
     if (el) q.appendChild(el);
   }
   return q;
@@ -243,13 +323,14 @@ function renderList(
   block: List,
   doc: DomainDocument,
   buffer: { getRange: (start: number, end: number) => string },
-  getAssetDataUrl?: (name: string) => string | null,
+  getAssetDataUrl: ((name: string) => string | null) | undefined,
+  headingNumbers: Map<BlockId, string>,
 ): HTMLOListElement | HTMLUListElement {
   const tag = block.listType === "ordered" ? "ol" : "ul";
   const el = document.createElement(tag);
   for (const item of block.items) {
     const li = document.createElement("li");
-    const childEl = renderBlock(item.content, doc, buffer, getAssetDataUrl);
+    const childEl = renderBlock(item.content, doc, buffer, getAssetDataUrl, headingNumbers);
     if (childEl) li.appendChild(childEl);
     el.appendChild(li);
   }

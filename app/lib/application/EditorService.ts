@@ -444,6 +444,27 @@ export class EditorService {
     this._notify();
   }
 
+  insertTocBlock(title?: string): void {
+    if (!this.document) return;
+    
+    const sel = this.selectionManager.selection;
+    if (!sel) return;
+    
+    this._pushHistory();
+    
+    const event = this.document.insertTocBlock(sel.anchor.blockId, title);
+    
+    if (event) {
+      this.selectionManager.setSelection({
+        anchor: { blockId: event.block.id, offset: 0 },
+        focus: { blockId: event.block.id, offset: 0 },
+      });
+    }
+    
+    this._isDirty = true;
+    this._notify();
+  }
+
   toggleBold(): void {
     if (!this.document) return;
     

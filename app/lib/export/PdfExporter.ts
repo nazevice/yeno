@@ -8,6 +8,7 @@ import type { TextBufferContent, PieceChunk } from "../domain/document/buffer/Te
 import { isParagraph, isHeading, isTable, isImage, isList, isBlockquote } from "../domain/document/entities";
 import type { FormattingMark } from "../domain/document/value-objects/FormattingMark";
 import type { AssetRef } from "../domain/document/entities/Image";
+import type { BlockId } from "../domain/shared/NodeId";
 
 const vfsFonts = pdfFonts as unknown as { pdfMake?: { vfs: unknown } };
 if (vfsFonts?.pdfMake?.vfs) {
@@ -33,14 +34,38 @@ function assetToDataUrl(asset: AssetRef | null): string | null {
   }
 }
 
+function resolveHeadingNumbersFromSnapshot(snapshot: DocumentSnapshot): Map<BlockId, string> {
+  const numberingMap = new Map<BlockId, string>();
+  const counters = [0, 0, 0];
+
+  for (const section of snapshot.tree.root.children) {
+    if (!section) continue;
+    for (const block of section.children) {
+      if (isHeading(block)) {
+        const levelIndex = block.level - 1;
+        counters[levelIndex] = (counters[levelIndex] ?? 0) + 1;
+        for (let i = levelIndex + 1; i < 3; i++) {
+          counters[i] = 0;
+        }
+        const number = counters.slice(0, levelIndex + 1).join(".");
+        numberingMap.set(block.id, number);
+      }
+    }
+  }
+
+  return numberingMap;
+}
+
 export class PdfExporter {
   private fullText: string;
+  private headingNumbers: Map<BlockId, string>;
 
   constructor(
     private snapshot: DocumentSnapshot,
     private assets: AssetDataUrlMap = new Map()
   ) {
     this.fullText = this.reconstructText(snapshot.bufferContent);
+    this.headingNumbers = resolveHeadingNumbersFromSnapshot(snapshot);
   }
 
   export(options: PdfExportOptions = {}): void {
@@ -145,11 +170,12 @@ export class PdfExporter {
   private mapHeading(heading: Heading): Content {
     const text = this.getTextInRange(heading.textRange.start, heading.textRange.end);
     const textContent = this.mapTextWithMarks(text, heading.marks);
+    const number = this.headingNumbers.get(heading.id);
 
     const style = `H${heading.level}` as "H1" | "H2" | "H3";
 
     const content: Content = {
-      text: textContent,
+      text: number ? [{ text: number + ".", bold: true }, { text: " " }, ...textContent] : textContent,
       style,
       alignment: this.mapAlignment(heading.textAlign),
     };

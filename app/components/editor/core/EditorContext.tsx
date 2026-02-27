@@ -23,6 +23,7 @@ export interface EditorApi {
   execFormatWithSelection: (anchor: number, focus: number, cmd: string, value?: string) => void;
   insertTable: (rows: number, cols: number, includeHeaders: boolean) => void;
   insertImage: (assetRef: AssetRef) => void;
+  insertToc: (title?: string) => void;
   focus: () => void;
   undo: () => void;
   redo: () => void;
@@ -145,6 +146,9 @@ export function EditorProvider({
       },
       insertImage: (assetRef: AssetRef) => {
         service.insertImageBlock(assetRef, assetRef.alt, assetRef.size);
+      },
+      insertToc: (title?: string) => {
+        service.insertTocBlock(title);
       },
       focus: () => rootRef.current?.focus(),
       undo: () => service.undo(),

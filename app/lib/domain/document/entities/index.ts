@@ -6,6 +6,7 @@ export type { Image, AssetRef } from "./Image";
 export type { List, ListItem, ListType } from "./List";
 export type { Blockquote, BlockquoteChild } from "./Blockquote";
 export type { Section } from "./Section";
+export type { TocBlock } from "./TocBlock";
 
 import type { Paragraph } from "./Paragraph";
 import type { Heading } from "./Heading";
@@ -13,8 +14,9 @@ import type { Table } from "./Table";
 import type { Image } from "./Image";
 import type { List } from "./List";
 import type { Blockquote } from "./Blockquote";
+import type { TocBlock } from "./TocBlock";
 
-export type Block = Paragraph | Heading | Table | Image | List | Blockquote;
+export type Block = Paragraph | Heading | Table | Image | List | Blockquote | TocBlock;
 export type TextBlock = Paragraph | Heading;
 
 export function isTextBlock(block: Block): block is TextBlock {
@@ -43,4 +45,8 @@ export function isList(block: Block): block is List {
 
 export function isBlockquote(block: Block): block is Blockquote {
   return block.type === "blockquote";
+}
+
+export function isToc(block: Block): block is TocBlock {
+  return block.type === "toc";
 }
