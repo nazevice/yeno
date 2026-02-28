@@ -1,7 +1,6 @@
 import { toImageToken } from "~/lib/doc/imageToken";
 
 export const BLOCK_TAGS = ["P", "H1", "H2", "H3", "BLOCKQUOTE", "LI", "DIV"] as const;
-export const PAGE_BREAK_SELECTOR = '[data-type="page-break"]';
 export const IMAGE_BLOCK_SELECTOR = '[data-type="image"]';
 
 /** Get text content from a single block element (p, h1, table cell, etc.). */
@@ -35,23 +34,14 @@ export function getBlockTextContent(block: HTMLElement): string {
   return parts.reverse().join("");
 }
 
-/** Get root-level block elements (excluding page breaks). */
+/** Get root-level block elements. */
 export function getPaginateableBlocks(root: HTMLElement): HTMLElement[] {
   const blocks: HTMLElement[] = [];
   for (const child of root.children) {
     const el = child as HTMLElement;
-    if (el.getAttribute?.("data-type") === "page-break") continue;
     blocks.push(el);
   }
   return blocks;
-}
-
-export function createPageBreakElement(): HTMLDivElement {
-  const div = document.createElement("div");
-  div.setAttribute("data-type", "page-break");
-  div.setAttribute("data-lexical-page-break", "true");
-  div.className = "page-break-node";
-  return div;
 }
 
 export function createImageBlockElement(

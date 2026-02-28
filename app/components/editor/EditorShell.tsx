@@ -11,6 +11,7 @@ import { ImageResizePlugin } from "./plugins/ImageResizePlugin";
 import { TablePlugin } from "./plugins/TablePlugin";
 import { DebugPanel } from "./DebugPanel";
 import { exportToPdf } from "~/lib/export/PdfExporter";
+import { DEFAULT_PAGE_WIDTH, DEFAULT_PAGE_HEIGHT } from "~/lib/domain/layout/PaginationTypes";
 
 function assetToDataUrl(asset: AssetRef | null): string | null {
   if (!asset?.bytes?.length) return null;
@@ -24,10 +25,6 @@ function assetToDataUrl(asset: AssetRef | null): string | null {
     return null;
   }
 }
-
-const DEFAULT_PAGE_WIDTH = 794;
-const DEFAULT_PAGE_HEIGHT = 1123;
-const PAGE_GAP_PX = 48;
 
 const ImageInput = forwardRef<
   HTMLInputElement,
@@ -220,29 +217,29 @@ export function EditorShell() {
 
   useEffect(() => {
     const container = paginatedContainerRef.current;
-    const editable = document.querySelector<HTMLElement>(".editor-content.paged");
-    if (!container || !editable) return;
+    if (!container) return;
 
-    const updatePaginationStats = () => {
-      const pageStridePx = pageHeightPx + PAGE_GAP_PX;
-      const computedPageCount = Math.max(1, Math.ceil(editable.scrollHeight / pageStridePx));
-      setPageCount(computedPageCount);
+    const PAGE_GAP_PX = 48;
+    let lastMeasuredPageCount = 1;
+    let resizeObserver: ResizeObserver | null = null;
 
-      const selection = window.getSelection();
-      let cursorY = container.scrollTop;
-      if (selection && selection.rangeCount > 0) {
-        const rect = selection.getRangeAt(0).getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        if (rect.height || rect.width) {
-          cursorY = container.scrollTop + Math.max(0, rect.top - containerRect.top);
-        }
+    const measureAndUpdate = () => {
+      const editorContent = rootRef.current;
+      if (!editorContent) return;
+      
+      const contentHeight = editorContent.scrollHeight;
+      const availableHeight = pageHeightPx - 96;
+      const newPageCount = Math.max(1, Math.ceil(contentHeight / availableHeight));
+      
+      if (newPageCount !== lastMeasuredPageCount) {
+        lastMeasuredPageCount = newPageCount;
+        setPageCount(newPageCount);
       }
-
-      const nextPage = Math.max(
-        1,
-        Math.min(computedPageCount, Math.floor(cursorY / pageStridePx) + 1),
-      );
-      setCurrentPage((prev) => (prev === nextPage ? prev : nextPage));
+      
+      const scrollTop = container.scrollTop;
+      const pageHeight = pageHeightPx + PAGE_GAP_PX;
+      const newPage = Math.max(1, Math.min(newPageCount, Math.floor(scrollTop / pageHeight) + 1));
+      setCurrentPage((prev) => (prev === newPage ? prev : newPage));
     };
 
     const THROTTLE_MS = 100;
@@ -252,24 +249,35 @@ export function EditorShell() {
       const now = Date.now();
       if (now - lastRun >= THROTTLE_MS) {
         lastRun = now;
-        updatePaginationStats();
+        measureAndUpdate();
       } else if (!throttleId) {
         throttleId = setTimeout(() => {
           throttleId = null;
           lastRun = Date.now();
-          updatePaginationStats();
+          measureAndUpdate();
         }, THROTTLE_MS - (now - lastRun));
       }
     };
 
-    updatePaginationStats();
-    const ro = new ResizeObserver(throttledUpdate);
-    ro.observe(editable);
+    const setupObserver = () => {
+      const editorContent = rootRef.current;
+      if (!editorContent) {
+        requestAnimationFrame(setupObserver);
+        return;
+      }
+      
+      resizeObserver = new ResizeObserver(throttledUpdate);
+      resizeObserver.observe(editorContent);
+      measureAndUpdate();
+    };
+    
+    setupObserver();
+    
     container.addEventListener("scroll", throttledUpdate);
     document.addEventListener("selectionchange", throttledUpdate);
 
     return () => {
-      ro.disconnect();
+      resizeObserver?.disconnect();
       container.removeEventListener("scroll", throttledUpdate);
       document.removeEventListener("selectionchange", throttledUpdate);
       if (throttleId) clearTimeout(throttleId);
@@ -280,7 +288,6 @@ export function EditorShell() {
     () => ({ minHeight: pageHeightPx - 96 }),
     [pageHeightPx],
   );
-
 
   return (
     <EditorProvider service={service} rootRef={rootRef}>
@@ -302,19 +309,49 @@ export function EditorShell() {
           <div className="flex-1 overflow-hidden">
             <div
               ref={paginatedContainerRef}
-              className="h-full overflow-auto bg-zinc-100"
+              className="h-full overflow-auto bg-zinc-300"
               data-testid="editor-scroll-container"
             >
-              <div
-                className="mx-auto bg-white shadow-lg"
-                style={{ width: pageWidthPx, minHeight: pageHeightPx }}
-              >
-                <ContentEditableRoot
-                  className="editor-content paged p-12 outline-none"
-                  style={contentEditableStylePaginated}
-                  getAssetDataUrl={getAssetDataUrl}
-                  data-testid="editor-content"
-                />
+              <div className="sticky top-3 z-20 mx-auto w-fit rounded-full border border-zinc-300 bg-white/95 px-3 py-1 text-xs font-semibold text-zinc-700 shadow-sm">
+                Page {currentPage} / {Math.max(pageCount, 1)}
+              </div>
+              
+              <div className="flex justify-center pt-4 pb-8 px-4">
+                <div className="relative" style={{ width: pageWidthPx }}>
+                  <div
+                    className="bg-white shadow-lg relative"
+                    style={{
+                      minHeight: pageHeightPx,
+                    }}
+                  >
+                    <ContentEditableRoot
+                      className="editor-content paged p-12 outline-none"
+                      style={{ minHeight: pageHeightPx - 96 }}
+                      getAssetDataUrl={getAssetDataUrl}
+                      data-testid="editor-content"
+                    />
+                    
+                    {Array.from({ length: Math.max(0, pageCount - 1) }, (_, i) => {
+                      const breakTop = (i + 1) * (pageHeightPx - 96) + 48;
+                      return (
+                        <div
+                          key={`pagebreak-${i}`}
+                          className="absolute left-12 right-12 flex items-center pointer-events-none"
+                          style={{ top: breakTop }}
+                        >
+                          <div className="flex-1 border-t-2 border-dashed border-zinc-300" />
+                          <div className="absolute left-1/2 -translate-x-1/2 -top-2.5 px-2 bg-zinc-200 text-[10px] font-semibold text-zinc-500 whitespace-nowrap rounded">
+                            Page {i + 2}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  <div className="absolute bottom-2 left-0 right-0 text-center text-[10px] text-zinc-400">
+                    1
+                  </div>
+                </div>
               </div>
             </div>
           </div>
