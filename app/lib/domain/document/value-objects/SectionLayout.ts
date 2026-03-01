@@ -10,14 +10,20 @@ export interface PageSize {
   readonly height: number;
 }
 
+export interface HeaderFooterContent {
+  readonly left?: string;
+  readonly center?: string;
+  readonly right?: string;
+}
+
 export interface SectionLayoutData {
   readonly margins?: Margins | undefined;
   readonly orientation?: "portrait" | "landscape" | undefined;
   readonly pageSize?: PageSize | undefined;
   readonly columns?: number | undefined;
   readonly columnGap?: number | undefined;
-  readonly headers?: Readonly<Record<string, string>> | undefined;
-  readonly footers?: Readonly<Record<string, string>> | undefined;
+  readonly header?: HeaderFooterContent | undefined;
+  readonly footer?: HeaderFooterContent | undefined;
 }
 
 export class SectionLayout {
@@ -26,8 +32,8 @@ export class SectionLayout {
   readonly pageSize: PageSize | undefined;
   readonly columns: number | undefined;
   readonly columnGap: number | undefined;
-  readonly headers: Readonly<Record<string, string>> | undefined;
-  readonly footers: Readonly<Record<string, string>> | undefined;
+  readonly header: HeaderFooterContent | undefined;
+  readonly footer: HeaderFooterContent | undefined;
 
   private constructor(
     margins: Margins | undefined,
@@ -35,16 +41,16 @@ export class SectionLayout {
     pageSize: PageSize | undefined,
     columns: number | undefined,
     columnGap: number | undefined,
-    headers: Readonly<Record<string, string>> | undefined,
-    footers: Readonly<Record<string, string>> | undefined,
+    header: HeaderFooterContent | undefined,
+    footer: HeaderFooterContent | undefined,
   ) {
     this.margins = margins;
     this.orientation = orientation;
     this.pageSize = pageSize;
     this.columns = columns;
     this.columnGap = columnGap;
-    this.headers = headers;
-    this.footers = footers;
+    this.header = header;
+    this.footer = footer;
   }
 
   static readonly default: SectionLayout = new SectionLayout(
@@ -64,9 +70,15 @@ export class SectionLayout {
       data.pageSize,
       data.columns,
       data.columnGap,
-      data.headers,
-      data.footers,
+      data.header,
+      data.footer,
     );
+  }
+
+  static resolveTemplate(text: string, pageNumber: number, totalPages: number): string {
+    return text
+      .replace(/{page}/gi, String(pageNumber))
+      .replace(/{total}/gi, String(totalPages));
   }
 
   withMargins(margins: Margins): SectionLayout {
@@ -76,8 +88,8 @@ export class SectionLayout {
       this.pageSize,
       this.columns,
       this.columnGap,
-      this.headers,
-      this.footers,
+      this.header,
+      this.footer,
     );
   }
 
@@ -89,8 +101,8 @@ export class SectionLayout {
       this.pageSize,
       this.columns,
       this.columnGap,
-      this.headers,
-      this.footers,
+      this.header,
+      this.footer,
     );
   }
 
@@ -101,8 +113,8 @@ export class SectionLayout {
       pageSize,
       this.columns,
       this.columnGap,
-      this.headers,
-      this.footers,
+      this.header,
+      this.footer,
     );
   }
 
@@ -113,8 +125,8 @@ export class SectionLayout {
       this.pageSize,
       columns,
       this.columnGap,
-      this.headers,
-      this.footers,
+      this.header,
+      this.footer,
     );
   }
 
@@ -125,32 +137,32 @@ export class SectionLayout {
       this.pageSize,
       this.columns,
       columnGap,
-      this.headers,
-      this.footers,
+      this.header,
+      this.footer,
     );
   }
 
-  withHeaders(headers: Record<string, string>): SectionLayout {
+  withHeader(header: HeaderFooterContent | undefined): SectionLayout {
     return new SectionLayout(
       this.margins,
       this.orientation,
       this.pageSize,
       this.columns,
       this.columnGap,
-      headers,
-      this.footers,
+      header,
+      this.footer,
     );
   }
 
-  withFooters(footers: Record<string, string>): SectionLayout {
+  withFooter(footer: HeaderFooterContent | undefined): SectionLayout {
     return new SectionLayout(
       this.margins,
       this.orientation,
       this.pageSize,
       this.columns,
       this.columnGap,
-      this.headers,
-      footers,
+      this.header,
+      footer,
     );
   }
 
@@ -161,8 +173,8 @@ export class SectionLayout {
       pageSizeEqual(this.pageSize, other.pageSize) &&
       this.columns === other.columns &&
       this.columnGap === other.columnGap &&
-      recordsEqual(this.headers, other.headers) &&
-      recordsEqual(this.footers, other.footers)
+      headerFooterEqual(this.header, other.header) &&
+      headerFooterEqual(this.footer, other.footer)
     );
   }
 
@@ -173,16 +185,16 @@ export class SectionLayout {
       pageSize?: PageSize;
       columns?: number;
       columnGap?: number;
-      headers?: Readonly<Record<string, string>>;
-      footers?: Readonly<Record<string, string>>;
+      header?: HeaderFooterContent;
+      footer?: HeaderFooterContent;
     } = {};
     if (this.margins !== undefined) result.margins = { ...this.margins };
     if (this.orientation !== undefined) result.orientation = this.orientation;
     if (this.pageSize !== undefined) result.pageSize = { ...this.pageSize };
     if (this.columns !== undefined) result.columns = this.columns;
     if (this.columnGap !== undefined) result.columnGap = this.columnGap;
-    if (this.headers !== undefined) result.headers = { ...this.headers };
-    if (this.footers !== undefined) result.footers = { ...this.footers };
+    if (this.header !== undefined) result.header = { ...this.header };
+    if (this.footer !== undefined) result.footer = { ...this.footer };
     return result;
   }
 
@@ -203,16 +215,10 @@ function marginsEqual(a?: Margins, b?: Margins): boolean {
   return a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left;
 }
 
-function recordsEqual(a?: Readonly<Record<string, string>>, b?: Readonly<Record<string, string>>): boolean {
+function headerFooterEqual(a?: HeaderFooterContent, b?: HeaderFooterContent): boolean {
   if (!a && !b) return true;
   if (!a || !b) return false;
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  for (const key of keysA) {
-    if (a[key] !== b[key]) return false;
-  }
-  return true;
+  return a.left === b.left && a.center === b.center && a.right === b.right;
 }
 
 export type { SectionLayoutData as SectionLayoutSnapshot };

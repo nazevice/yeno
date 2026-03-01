@@ -2,7 +2,7 @@ import { DocumentId, BlockId, SectionId } from "../shared/NodeId";
 import { BufferRange } from "./value-objects/BufferRange";
 import { TextAttributes } from "./value-objects/TextAttributes";
 import { FormattingMark, mergeFormattingMarks, shiftMarksAfter, rangeHasAttr } from "./value-objects/FormattingMark";
-import type { SectionLayout } from "./value-objects/SectionLayout";
+import { SectionLayout } from "./value-objects/SectionLayout";
 import type { TextAlign } from "./value-objects/TextAlign";
 import { TextBuffer } from "./buffer/TextBuffer";
 import type { TextBufferContent } from "./buffer/TextBufferTypes";
@@ -76,7 +76,13 @@ export class Document {
   }
 
   static reconstitute(snapshot: DocumentSnapshot): Document {
-    const sections = snapshot.tree.root.children.map(s => Section.create(s.id, [...s.children])) as Section[];
+    const sections = snapshot.tree.root.children.map(s => {
+      const section = Section.create(s.id, [...s.children]);
+      if (s.layout) {
+        return Section.withLayout(section, SectionLayout.from(s.layout));
+      }
+      return section;
+    }) as Section[];
     const buffer = TextBuffer.fromContent(snapshot.bufferContent);
     
     return new Document({
@@ -702,7 +708,15 @@ export class Document {
   }
 
   toSnapshot(): DocumentSnapshot {
-    const sections = this.state.sections.map(s => ({ ...s, children: [...s.children] })) as Section[];
+    const sections = this.state.sections.map(s => {
+      const sectionData = {
+        id: s.id,
+        type: s.type,
+        children: [...s.children],
+        layout: s.layout ? s.layout.toJSON() : undefined,
+      };
+      return sectionData;
+    }) as Section[];
     
     return {
       id: this.state.id,

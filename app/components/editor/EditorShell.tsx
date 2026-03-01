@@ -6,10 +6,12 @@ import { ContentEditableRoot } from "./core/ContentEditableRoot";
 import { Toolbar } from "./Toolbar";
 import { renderDocument } from "./DocumentRenderer";
 import type { AssetRef } from "~/lib/domain/document/entities/Image";
+import type { HeaderFooterContent } from "~/lib/domain/document/value-objects/SectionLayout";
 import { applySelectionFromOffsets } from "./core/domSelection";
 import { ImageResizePlugin } from "./plugins/ImageResizePlugin";
 import { TablePlugin } from "./plugins/TablePlugin";
 import { DebugPanel } from "./DebugPanel";
+import { HeaderFooter } from "./HeaderFooter";
 import { exportToPdf } from "~/lib/export/PdfExporter";
 import { DEFAULT_PAGE_WIDTH, DEFAULT_PAGE_HEIGHT } from "~/lib/domain/layout/PaginationTypes";
 
@@ -215,6 +217,8 @@ export function EditorShell() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [headerContent, setHeaderContent] = useState<HeaderFooterContent | undefined>();
+  const [footerContent, setFooterContent] = useState<HeaderFooterContent | undefined>();
   const paginatedContainerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -242,6 +246,16 @@ export function EditorShell() {
       exportToPdf(snapshot, assetMap);
     }
   }, [service, assets]);
+
+  const handleHeaderChange = useCallback((content: HeaderFooterContent) => {
+    setHeaderContent(content.left || content.center || content.right ? content : undefined);
+    service.setHeader(content);
+  }, [service]);
+
+  const handleFooterChange = useCallback((content: HeaderFooterContent) => {
+    setFooterContent(content.left || content.center || content.right ? content : undefined);
+    service.setFooter(content);
+  }, [service]);
 
   useEffect(() => {
     let rafId: number | null = null;
@@ -426,7 +440,7 @@ export function EditorShell() {
                   {Array.from({ length: Math.max(1, pageCount) }, (_, i) => (
                     <div
                       key={`page-bg-${i}`}
-                      className="bg-white shadow-lg pointer-events-none absolute"
+                      className="bg-white shadow-lg absolute"
                       style={{
                         top: i * (pageHeightPx + PAGE_GAP_PX),
                         left: 0,
@@ -454,13 +468,34 @@ export function EditorShell() {
                   
                   {Array.from({ length: Math.max(1, pageCount) }, (_, i) => (
                     <div
-                      key={`page-num-${i}`}
-                      className="absolute left-0 right-0 text-center text-[10px] text-zinc-400 pointer-events-none"
+                      key={`page-hf-${i}`}
+                      className="absolute pointer-events-none"
                       style={{
-                        top: (i + 1) * (pageHeightPx + PAGE_GAP_PX) - 20,
+                        top: i * (pageHeightPx + PAGE_GAP_PX),
+                        left: 0,
+                        right: 0,
+                        height: pageHeightPx,
+                        zIndex: 2,
                       }}
                     >
-                      {i + 1}
+                      <div className="pointer-events-auto">
+                        <HeaderFooter
+                          type="header"
+                          content={headerContent}
+                          pageNumber={i + 1}
+                          totalPages={pageCount}
+                          pageWidth={pageWidthPx}
+                          onContentChange={handleHeaderChange}
+                        />
+                        <HeaderFooter
+                          type="footer"
+                          content={footerContent}
+                          pageNumber={i + 1}
+                          totalPages={pageCount}
+                          pageWidth={pageWidthPx}
+                          onContentChange={handleFooterChange}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>

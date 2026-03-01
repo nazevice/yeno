@@ -5,7 +5,7 @@ import type { DocumentSnapshot } from "../domain/document/DocumentSnapshot";
 import type { Block } from "../domain/document/entities";
 import { TextAttributes } from "../domain/document/value-objects/TextAttributes";
 import type { TextAlign } from "../domain/document/value-objects/TextAlign";
-import type { SectionLayout } from "../domain/document/value-objects/SectionLayout";
+import { SectionLayout, type HeaderFooterContent } from "../domain/document/value-objects/SectionLayout";
 import type { AssetRef } from "../domain/document/entities/Image";
 import { isTable, isTextBlock, isImage, isParagraph, isHeading } from "../domain/document/entities";
 import { HistoryManager } from "./HistoryManager";
@@ -302,6 +302,58 @@ export class EditorService {
     
     this._isDirty = true;
     this._notify();
+  }
+
+  getFirstSectionId(): SectionId | null {
+    if (!this.document) return null;
+    const section = this.document.sections[0];
+    return section?.id ?? null;
+  }
+
+  getSectionLayout(sectionId: SectionId): SectionLayout | undefined {
+    if (!this.document) return undefined;
+    const section = this.document.getSection(sectionId);
+    return section?.layout ?? SectionLayout.default;
+  }
+
+  setHeader(content: HeaderFooterContent): void {
+    if (!this.document) return;
+    const sectionId = this.getFirstSectionId();
+    if (!sectionId) return;
+    
+    const currentLayout = this.getSectionLayout(sectionId) ?? SectionLayout.default;
+    const newLayout = currentLayout.withHeader(
+      content.left || content.center || content.right ? content : undefined
+    );
+    
+    this.setSectionLayout(sectionId, newLayout);
+  }
+
+  setFooter(content: HeaderFooterContent): void {
+    if (!this.document) return;
+    const sectionId = this.getFirstSectionId();
+    if (!sectionId) return;
+    
+    const currentLayout = this.getSectionLayout(sectionId) ?? SectionLayout.default;
+    const newLayout = currentLayout.withFooter(
+      content.left || content.center || content.right ? content : undefined
+    );
+    
+    this.setSectionLayout(sectionId, newLayout);
+  }
+
+  getHeader(): HeaderFooterContent | undefined {
+    if (!this.document) return undefined;
+    const sectionId = this.getFirstSectionId();
+    if (!sectionId) return undefined;
+    return this.getSectionLayout(sectionId)?.header;
+  }
+
+  getFooter(): HeaderFooterContent | undefined {
+    if (!this.document) return undefined;
+    const sectionId = this.getFirstSectionId();
+    if (!sectionId) return undefined;
+    return this.getSectionLayout(sectionId)?.footer;
   }
 
   undo(): void {

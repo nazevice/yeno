@@ -9,6 +9,8 @@ import { isParagraph, isHeading, isTable, isImage, isList, isBlockquote } from "
 import type { FormattingMark } from "../domain/document/value-objects/FormattingMark";
 import type { AssetRef } from "../domain/document/entities/Image";
 import type { BlockId } from "../domain/shared/NodeId";
+import type { HeaderFooterContent } from "../domain/document/value-objects/SectionLayout";
+import { SectionLayout } from "../domain/document/value-objects/SectionLayout";
 
 const vfsFonts = pdfFonts as unknown as { pdfMake?: { vfs: unknown } };
 if (vfsFonts?.pdfMake?.vfs) {
@@ -85,11 +87,72 @@ export class PdfExporter {
 
   private buildDefinition(): TDocumentDefinitions {
     const content = this.buildContent();
+    const firstSection = this.snapshot.tree.root.children[0];
+    const layout = firstSection?.layout ? SectionLayout.from(firstSection.layout) : undefined;
+
+    const definition: TDocumentDefinitions = {
+      info: this.buildInfo(),
+      content,
+    };
+
+    if (layout?.header) {
+      definition.header = (currentPage, pageCount) => 
+        this.buildHeaderFooterDynamic(layout.header!, "header", currentPage, pageCount);
+    }
+
+    if (layout?.footer) {
+      definition.footer = (currentPage, pageCount) => 
+        this.buildHeaderFooterDynamic(layout.footer!, "footer", currentPage, pageCount);
+    }
+
+    return definition;
+  }
+
+  private buildHeaderFooterDynamic(
+    content: HeaderFooterContent,
+    type: "header" | "footer",
+    currentPage: number,
+    totalPages: number
+  ): Content {
+    const columns: Content[] = [];
+
+    if (content.left) {
+      columns.push({
+        text: this.resolveTemplate(content.left, currentPage, totalPages),
+        alignment: "left",
+      });
+    }
+
+    if (content.center) {
+      columns.push({
+        text: this.resolveTemplate(content.center, currentPage, totalPages),
+        alignment: "center",
+      });
+    } else if (content.left || content.right) {
+      columns.push({ text: "" });
+    }
+
+    if (content.right) {
+      columns.push({
+        text: this.resolveTemplate(content.right, currentPage, totalPages),
+        alignment: "right",
+      });
+    }
+
+    if (columns.length === 0) {
+      return { text: "" };
+    }
 
     return {
-      info: this.buildInfo(),
-      content
+      columns,
+      margin: [48, type === "header" ? 12 : 0, 48, type === "footer" ? 12 : 0] as [number, number, number, number],
     };
+  }
+
+  private resolveTemplate(text: string, pageNumber: number, totalPages: number): string {
+    return text
+      .replace(/{page}/gi, String(pageNumber))
+      .replace(/{total}/gi, String(totalPages));
   }
 
   private buildInfo(): { title?: string; author?: string } {
