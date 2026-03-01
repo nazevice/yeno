@@ -52,8 +52,41 @@ The document is modeled as a tree of nodes. The root contains **sections**; each
 
 ### Section
 
-- **Section**: `id`, `type: "section"`, `children: Block[]`, optional `layout: SectionLayout`
-- **SectionLayout** (optional): margins, orientation (portrait/landscape), pageSize, columns, columnGap, headers, footers
+- **Section**: `id`, `type: "section"`, `children: Block[]`, optional `layout: SectionLayoutData`
+- **SectionLayoutData** (optional): 
+  - `margins`: `{ top, right, bottom, left }` in points
+  - `orientation`: `"portrait" | "landscape"`
+  - `pageSize`: `{ width, height }` in points
+  - `columns`: number of columns
+  - `columnGap`: gap between columns
+  - `header`: `HeaderFooterContent` for page headers
+  - `footer`: `HeaderFooterContent` for page footers
+
+### HeaderFooterContent
+
+Headers and footers support three zones (left, center, right):
+
+```ts
+interface HeaderFooterContent {
+  left?: string;   // Left-aligned text (HTML format)
+  center?: string; // Center-aligned text (HTML format)
+  right?: string;  // Right-aligned text (HTML format)
+}
+```
+
+**Template Variables:**
+- `{page}` — Resolved to current page number
+- `{total}` — Resolved to total page count
+
+**Example:**
+```json
+{
+  "header": { "left": "<b>Title</b>", "right": "{page}" },
+  "footer": { "center": "Page {page} of {total}" }
+}
+```
+
+Text is stored as HTML to support basic formatting (bold, italic, underline) from contentEditable.
 
 ### Block Types
 
@@ -111,7 +144,56 @@ The payload sent to/from storage (Tauri `save_grokedoc` / `load_grokedoc`):
 }
 ```
 
+### Section in documentTree
+
+```ts
+interface Section {
+  id: string;
+  type: "section";
+  children: Block[];
+  layout?: SectionLayoutData;
+}
+
+interface SectionLayoutData {
+  margins?: { top: number; right: number; bottom: number; left: number };
+  orientation?: "portrait" | "landscape";
+  pageSize?: { width: number; height: number };
+  columns?: number;
+  columnGap?: number;
+  header?: { left?: string; center?: string; right?: string };
+  footer?: { left?: string; center?: string; right?: string };
+}
+```
+
 `AssetRef`: `{ name, targetPos, alt, size: [w,h], bytes }`
+
+---
+
+## 6. Runtime vs Persistence
+
+### Runtime (Document class)
+
+The in-memory `Document` stores `SectionLayout` class instances for direct method access:
+
+```ts
+section.layout // SectionLayout class instance
+```
+
+### Persistence (toSnapshot)
+
+When saving, class instances are serialized to plain objects:
+
+```ts
+SectionLayout.toJSON() → SectionLayoutData
+```
+
+### Hydration (reconstitute)
+
+When loading, plain objects are reconstructed to class instances:
+
+```ts
+SectionLayout.from(data) → SectionLayout class instance
+```
 
 ---
 
@@ -123,8 +205,11 @@ The payload sent to/from storage (Tauri `save_grokedoc` / `load_grokedoc`):
 - **Relative marks**: Local edits avoid cascading updates to marks in other blocks
 - **Explicit block types**: Paragraph, Heading, List, Table, Image, Blockquote enable semantic features and export
 - **ZIP + checksums**: Integrity validation and granular file access
+- **Headers/Footers**: Per-section layout with template variables for page numbers
+- **Runtime/Persistence separation**: Class instances at runtime for method access; plain objects for serialization
 
 ### Trade-offs
 
 - **Complexity**: Tree and buffer must stay synchronized during edits; range shifting is non-trivial
 - **Learning curve**: Developers must distinguish absolute buffer positions from relative mark offsets
+- **HTML in headers/footers**: Basic formatting stored as HTML strings; requires careful sanitization on render
