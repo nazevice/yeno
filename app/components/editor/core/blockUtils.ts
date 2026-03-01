@@ -34,11 +34,12 @@ export function getBlockTextContent(block: HTMLElement): string {
   return parts.reverse().join("");
 }
 
-/** Get root-level block elements. */
+/** Get root-level block elements, excluding page-break spacer nodes. */
 export function getPaginateableBlocks(root: HTMLElement): HTMLElement[] {
   const blocks: HTMLElement[] = [];
   for (const child of root.children) {
     const el = child as HTMLElement;
+    if (el.getAttribute("data-page-break") === "true") continue;
     blocks.push(el);
   }
   return blocks;

@@ -13,6 +13,94 @@ import { DebugPanel } from "./DebugPanel";
 import { exportToPdf } from "~/lib/export/PdfExporter";
 import { DEFAULT_PAGE_WIDTH, DEFAULT_PAGE_HEIGHT } from "~/lib/domain/layout/PaginationTypes";
 
+const PAGE_GAP_PX = 24;
+// Padding on the ContentEditableRoot (p-12 = 48 px). This accounts for the
+// top margin (top padding of the CERoot). Bottom margin is provided by the
+// page-break spacer nodes rather than CSS padding, so the CERoot only has top
+// and horizontal padding.
+const PAGE_PADDING = 48;
+
+/**
+ * Inserts DOM spacer nodes between block children of `root` at each page
+ * boundary so that content is physically pushed to the next page rather than
+ * being hidden by a CSS mask.
+ *
+ * Strategy:
+ *  - The usable content height per page is pageHeight - topPadding - bottomPadding.
+ *  - We walk each direct child (excluding existing spacers), and whenever a
+ *    child would overflow the current page we insert a spacer BEFORE it. The
+ *    spacer height equals the remaining space on the current page plus the
+ *    visual gap plus both margins so the next child lands at the content area
+ *    start of the next page.
+ *  - Spacers are marked with data-page-break="true" so they can be identified.
+ *  - If the existing spacers already match what is required, the DOM is left
+ *    untouched and the function returns null (no state update needed).
+ *  - Otherwise the old spacers are replaced and the new page count is returned.
+ */
+function applyPageBreaks(
+  root: HTMLElement,
+  pageHeightPx: number,
+  topPadding: number,
+  bottomPadding: number,
+  gapPx: number,
+): number {
+  const contentHeightPerPage = pageHeightPx - topPadding - bottomPadding;
+  if (contentHeightPerPage <= 0) return 1;
+
+  const existingSpacers = Array.from(
+    root.querySelectorAll('[data-page-break="true"]'),
+  ) as HTMLElement[];
+  const contentChildren = Array.from(root.children).filter(
+    (el) => el.getAttribute("data-page-break") !== "true",
+  ) as HTMLElement[];
+
+  existingSpacers.forEach((s) => s.remove());
+
+  const rootRect = root.getBoundingClientRect();
+
+  let pageTop = topPadding;
+  let virtualOffset = 0;
+  let pageCount = 1;
+  const insertions: { before: HTMLElement; height: number }[] = [];
+
+  for (const child of contentChildren) {
+    const childRect = child.getBoundingClientRect();
+    const rawTop = childRect.top - rootRect.top;
+    const childTop = rawTop + virtualOffset;
+    const childBottom = childTop + childRect.height;
+    const pageStride = pageHeightPx + gapPx;
+
+    while (childTop >= pageTop + contentHeightPerPage) {
+      pageTop += pageStride;
+      pageCount += 1;
+    }
+
+    const pageBottom = pageTop + contentHeightPerPage;
+
+    if (childBottom > pageBottom) {
+      const remaining = pageBottom - childTop;
+      const spacerHeight = Math.max(0, remaining) + gapPx + bottomPadding + topPadding;
+      insertions.push({ before: child, height: spacerHeight });
+      virtualOffset += spacerHeight;
+      pageTop = childTop + spacerHeight;
+      pageCount += 1;
+    }
+  }
+
+  insertions.forEach(({ before, height }) => {
+    const spacer = document.createElement("div");
+    spacer.setAttribute("data-page-break", "true");
+    spacer.setAttribute("contenteditable", "false");
+    spacer.style.height = `${height}px`;
+    spacer.style.display = "block";
+    spacer.style.pointerEvents = "none";
+    spacer.style.userSelect = "none";
+    root.insertBefore(spacer, before);
+  });
+
+  return pageCount;
+}
+
 function assetToDataUrl(asset: AssetRef | null): string | null {
   if (!asset?.bytes?.length) return null;
   try {
@@ -156,6 +244,8 @@ export function EditorShell() {
   }, [service, assets]);
 
   useEffect(() => {
+    let rafId: number | null = null;
+
     const render = () => {
       const root = rootRef.current;
       const doc = service.getDocument();
@@ -182,12 +272,29 @@ export function EditorShell() {
         }
         root.focus();
       }
+
+      // Schedule page-break insertion after layout is complete.
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const newPageCount = applyPageBreaks(
+          root,
+          pageHeightPx,
+          PAGE_PADDING,
+          PAGE_PADDING,
+          PAGE_GAP_PX,
+        );
+        setPageCount(newPageCount);
+      });
     };
 
     const unsub = service.subscribe(render);
     render();
-    return unsub;
-  }, [service, getAssetDataUrl]);
+    return () => {
+      unsub();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [service, getAssetDataUrl, pageHeightPx]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -219,22 +326,20 @@ export function EditorShell() {
     const container = paginatedContainerRef.current;
     if (!container) return;
 
-    const PAGE_GAP_PX = 48;
-    let lastMeasuredPageCount = 1;
     let resizeObserver: ResizeObserver | null = null;
 
-    const measureAndUpdate = () => {
+    const updateScrollPosition = () => {
       const editorContent = rootRef.current;
       if (!editorContent) return;
       
-      const contentHeight = editorContent.scrollHeight;
-      const availableHeight = pageHeightPx - 96;
-      const newPageCount = Math.max(1, Math.ceil(contentHeight / availableHeight));
-      
-      if (newPageCount !== lastMeasuredPageCount) {
-        lastMeasuredPageCount = newPageCount;
-        setPageCount(newPageCount);
-      }
+      const newPageCount = applyPageBreaks(
+        editorContent,
+        pageHeightPx,
+        PAGE_PADDING,
+        PAGE_PADDING,
+        PAGE_GAP_PX,
+      );
+      setPageCount((prev) => (prev === newPageCount ? prev : newPageCount));
       
       const scrollTop = container.scrollTop;
       const pageHeight = pageHeightPx + PAGE_GAP_PX;
@@ -249,12 +354,12 @@ export function EditorShell() {
       const now = Date.now();
       if (now - lastRun >= THROTTLE_MS) {
         lastRun = now;
-        measureAndUpdate();
+        updateScrollPosition();
       } else if (!throttleId) {
         throttleId = setTimeout(() => {
           throttleId = null;
           lastRun = Date.now();
-          measureAndUpdate();
+          updateScrollPosition();
         }, THROTTLE_MS - (now - lastRun));
       }
     };
@@ -268,7 +373,7 @@ export function EditorShell() {
       
       resizeObserver = new ResizeObserver(throttledUpdate);
       resizeObserver.observe(editorContent);
-      measureAndUpdate();
+      updateScrollPosition();
     };
     
     setupObserver();
@@ -283,11 +388,6 @@ export function EditorShell() {
       if (throttleId) clearTimeout(throttleId);
     };
   }, [pageHeightPx]);
-
-  const contentEditableStylePaginated = useMemo(
-    () => ({ minHeight: pageHeightPx - 96 }),
-    [pageHeightPx],
-  );
 
   return (
     <EditorProvider service={service} rootRef={rootRef}>
@@ -316,41 +416,53 @@ export function EditorShell() {
                 Page {currentPage} / {Math.max(pageCount, 1)}
               </div>
               
-              <div className="flex justify-center pt-4 pb-8 px-4">
-                <div className="relative" style={{ width: pageWidthPx }}>
+              <div className="flex flex-col items-center pt-4 pb-8 px-4">
+                <div 
+                  className="relative" 
+                  style={{ 
+                    width: pageWidthPx,
+                  }}
+                >
+                  {Array.from({ length: Math.max(1, pageCount) }, (_, i) => (
+                    <div
+                      key={`page-bg-${i}`}
+                      className="bg-white shadow-lg pointer-events-none absolute"
+                      style={{
+                        top: i * (pageHeightPx + PAGE_GAP_PX),
+                        left: 0,
+                        right: 0,
+                        height: pageHeightPx,
+                        zIndex: 0,
+                      }}
+                    />
+                  ))}
+                  
                   <div
-                    className="bg-white shadow-lg relative"
-                    style={{
-                      minHeight: pageHeightPx,
+                    className="relative"
+                    style={{ 
+                      minHeight: pageCount * pageHeightPx + (pageCount - 1) * PAGE_GAP_PX,
+                      zIndex: 1,
                     }}
                   >
                     <ContentEditableRoot
-                      className="editor-content paged p-12 outline-none"
-                      style={{ minHeight: pageHeightPx - 96 }}
+                      className="editor-content paged px-12 pt-12 outline-none"
+                      style={{ minHeight: pageHeightPx - PAGE_PADDING }}
                       getAssetDataUrl={getAssetDataUrl}
                       data-testid="editor-content"
                     />
-                    
-                    {Array.from({ length: Math.max(0, pageCount - 1) }, (_, i) => {
-                      const breakTop = (i + 1) * (pageHeightPx - 96) + 48;
-                      return (
-                        <div
-                          key={`pagebreak-${i}`}
-                          className="absolute left-12 right-12 flex items-center pointer-events-none"
-                          style={{ top: breakTop }}
-                        >
-                          <div className="flex-1 border-t-2 border-dashed border-zinc-300" />
-                          <div className="absolute left-1/2 -translate-x-1/2 -top-2.5 px-2 bg-zinc-200 text-[10px] font-semibold text-zinc-500 whitespace-nowrap rounded">
-                            Page {i + 2}
-                          </div>
-                        </div>
-                      );
-                    })}
                   </div>
                   
-                  <div className="absolute bottom-2 left-0 right-0 text-center text-[10px] text-zinc-400">
-                    1
-                  </div>
+                  {Array.from({ length: Math.max(1, pageCount) }, (_, i) => (
+                    <div
+                      key={`page-num-${i}`}
+                      className="absolute left-0 right-0 text-center text-[10px] text-zinc-400 pointer-events-none"
+                      style={{
+                        top: (i + 1) * (pageHeightPx + PAGE_GAP_PX) - 20,
+                      }}
+                    >
+                      {i + 1}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
