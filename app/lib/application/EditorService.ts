@@ -12,6 +12,13 @@ import { HistoryManager } from "./HistoryManager";
 import { SelectionManager, type Selection } from "./SelectionManager";
 import { ActiveMarksManager } from "./ActiveMarksManager";
 import { ClipboardPayload, type ClipboardBlock, serializeToHtml } from "../domain/clipboard";
+import { DEFAULT_PAGE_HEIGHT, DEFAULT_MARGINS } from "../domain/layout/PaginationTypes";
+
+const ESTIMATED_LINE_HEIGHT = 24;
+const ESTIMATED_CHARS_PER_LINE = 80;
+const PAGE_CONTENT_HEIGHT = DEFAULT_PAGE_HEIGHT - DEFAULT_MARGINS.top - DEFAULT_MARGINS.bottom;
+const MAX_LINES_PER_PARAGRAPH = Math.floor(PAGE_CONTENT_HEIGHT / ESTIMATED_LINE_HEIGHT * 0.4);
+const MAX_CHARS_PER_PARAGRAPH = MAX_LINES_PER_PARAGRAPH * ESTIMATED_CHARS_PER_LINE;
 
 export class EditorService {
   private document: Document | null = null;
@@ -121,10 +128,19 @@ export class EditorService {
       this.document.insertText(sel.anchor.blockId, sel.anchor.offset, text);
       
       const newOffset = sel.anchor.offset + text.length;
-      this.selectionManager.setSelection({
-        anchor: { blockId: sel.anchor.blockId, offset: newOffset },
-        focus: { blockId: sel.anchor.blockId, offset: newOffset },
-      });
+      
+      const splitResult = this.autoSplitLongParagraph(sel.anchor.blockId, newOffset);
+      if (splitResult) {
+        this.selectionManager.setSelection({
+          anchor: { blockId: splitResult.finalBlockId, offset: splitResult.finalOffset },
+          focus: { blockId: splitResult.finalBlockId, offset: splitResult.finalOffset },
+        });
+      } else {
+        this.selectionManager.setSelection({
+          anchor: { blockId: sel.anchor.blockId, offset: newOffset },
+          focus: { blockId: sel.anchor.blockId, offset: newOffset },
+        });
+      }
     }
     
     this._isDirty = true;
@@ -201,10 +217,20 @@ export class EditorService {
     
     const event = this.document.mergeBlocks(resolved.block.id, sel.anchor.blockId);
     if (event) {
-      this.selectionManager.setSelection({
-        anchor: { blockId: event.survivingBlockId, offset: resolved.localOffset + 1 },
-        focus: { blockId: event.survivingBlockId, offset: resolved.localOffset + 1 },
-      });
+      const cursorOffset = resolved.localOffset + 1;
+      
+      const splitResult = this.autoSplitLongParagraph(event.survivingBlockId, cursorOffset);
+      if (splitResult) {
+        this.selectionManager.setSelection({
+          anchor: { blockId: splitResult.finalBlockId, offset: splitResult.finalOffset },
+          focus: { blockId: splitResult.finalBlockId, offset: splitResult.finalOffset },
+        });
+      } else {
+        this.selectionManager.setSelection({
+          anchor: { blockId: event.survivingBlockId, offset: cursorOffset },
+          focus: { blockId: event.survivingBlockId, offset: cursorOffset },
+        });
+      }
     }
     
     this._isDirty = true;
@@ -997,6 +1023,77 @@ export class EditorService {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  private autoSplitLongParagraph(
+    blockId: BlockId,
+    cursorOffset: number,
+  ): { finalBlockId: BlockId; finalOffset: number } | null {
+    if (!this.document) return null;
+    
+    let currentBlockId = blockId;
+    let currentOffset = cursorOffset;
+    let didSplit = false;
+    
+    while (true) {
+      const block = this.document.getBlock(currentBlockId);
+      if (!block || !isParagraph(block)) break;
+      
+      const text = this.document.getTextForBlock(currentBlockId);
+      if (!text || text.length <= MAX_CHARS_PER_PARAGRAPH) break;
+      
+      const splitPoint = this.findSplitPoint(text, MAX_CHARS_PER_PARAGRAPH);
+      if (splitPoint <= 0 || splitPoint >= text.length) break;
+      
+      const event = this.document.splitBlock(currentBlockId, splitPoint);
+      if (!event) break;
+      
+      didSplit = true;
+      
+      if (currentOffset > splitPoint) {
+        currentOffset = currentOffset - splitPoint - 1;
+        currentBlockId = event.newBlockId;
+      }
+      
+      const newBlock = this.document.getBlock(event.newBlockId);
+      if (newBlock && isParagraph(newBlock)) {
+        const newText = this.document.getTextForBlock(event.newBlockId);
+        if (newText && newText.length > MAX_CHARS_PER_PARAGRAPH) {
+          continue;
+        }
+      }
+      
+      break;
+    }
+    
+    if (!didSplit) return null;
+    
+    return {
+      finalBlockId: currentBlockId,
+      finalOffset: Math.max(0, currentOffset),
+    };
+  }
+
+  private findSplitPoint(text: string, maxPosition: number): number {
+    if (maxPosition >= text.length) return text.length;
+    
+    const searchStart = Math.max(0, maxPosition - 50);
+    const searchEnd = Math.min(text.length, maxPosition + 50);
+    const segment = text.slice(searchStart, searchEnd);
+    const targetRelative = maxPosition - searchStart;
+    
+    const spaceBefore = segment.lastIndexOf(" ", targetRelative - 1);
+    const spaceAfter = segment.indexOf(" ", targetRelative);
+    
+    if (spaceBefore >= 0 && targetRelative - spaceBefore <= 30) {
+      return searchStart + spaceBefore;
+    }
+    
+    if (spaceAfter >= 0 && spaceAfter - targetRelative <= 20) {
+      return searchStart + spaceAfter;
+    }
+    
+    return maxPosition;
   }
 
   private _pushHistory(): void {

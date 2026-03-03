@@ -107,6 +107,8 @@ export function DebugPanel({ service }: DebugPanelProps) {
     buffer: string;
     selection: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null;
     activeMarks: { bold?: boolean | undefined; italic?: boolean | undefined; underline?: boolean | undefined; font?: string | undefined; fontSize?: number | undefined } | null;
+    header: { left?: string; center?: string; right?: string } | undefined;
+    footer: { left?: string; center?: string; right?: string } | undefined;
   } | null>(null);
 
   useEffect(() => {
@@ -117,6 +119,8 @@ export function DebugPanel({ service }: DebugPanelProps) {
       const buffer = doc.getBuffer().getText();
       const selection = service.selection;
       const activeMarks = service.activeMarks;
+      const header = service.getHeader();
+      const footer = service.getFooter();
 
       setDocData({
         sections: serializeDocument(doc),
@@ -128,6 +132,8 @@ export function DebugPanel({ service }: DebugPanelProps) {
             }
           : null,
         activeMarks: activeMarks ? { ...activeMarks.toJSON() } : null,
+        header,
+        footer,
       });
     };
 
@@ -169,6 +175,34 @@ export function DebugPanel({ service }: DebugPanelProps) {
               ))
             ) : (
               <span className="text-zinc-500">No active marks</span>
+            )}
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Header" defaultOpen={false}>
+          <div className="text-[10px] text-zinc-400 font-mono">
+            {docData.header && (docData.header.left || docData.header.center || docData.header.right) ? (
+              <div className="space-y-1">
+                {docData.header.left && <div><span className="text-cyan-400">left:</span> {docData.header.left}</div>}
+                {docData.header.center && <div><span className="text-cyan-400">center:</span> {docData.header.center}</div>}
+                {docData.header.right && <div><span className="text-cyan-400">right:</span> {docData.header.right}</div>}
+              </div>
+            ) : (
+              <span className="text-zinc-500">No header</span>
+            )}
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Footer" defaultOpen={false}>
+          <div className="text-[10px] text-zinc-400 font-mono">
+            {docData.footer && (docData.footer.left || docData.footer.center || docData.footer.right) ? (
+              <div className="space-y-1">
+                {docData.footer.left && <div><span className="text-cyan-400">left:</span> {docData.footer.left}</div>}
+                {docData.footer.center && <div><span className="text-cyan-400">center:</span> {docData.footer.center}</div>}
+                {docData.footer.right && <div><span className="text-cyan-400">right:</span> {docData.footer.right}</div>}
+              </div>
+            ) : (
+              <span className="text-zinc-500">No footer</span>
             )}
           </div>
         </CollapsibleSection>

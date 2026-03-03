@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { EditorService } from "~/lib/application/EditorService";
 import { EditorProvider, useEditor } from "./core/EditorContext";
@@ -14,91 +14,193 @@ import { DebugPanel } from "./DebugPanel";
 import { HeaderFooter } from "./HeaderFooter";
 import { exportToPdf } from "~/lib/export/PdfExporter";
 import { DEFAULT_PAGE_WIDTH, DEFAULT_PAGE_HEIGHT } from "~/lib/domain/layout/PaginationTypes";
-
-const PAGE_GAP_PX = 24;
-// Padding on the ContentEditableRoot (p-12 = 48 px). This accounts for the
-// top margin (top padding of the CERoot). Bottom margin is provided by the
-// page-break spacer nodes rather than CSS padding, so the CERoot only has top
-// and horizontal padding.
-const PAGE_PADDING = 48;
+import { usePageLayout, getContentAreaHeight } from "./hooks/usePageLayout";
 
 /**
- * Inserts DOM spacer nodes between block children of `root` at each page
- * boundary so that content is physically pushed to the next page rather than
- * being hidden by a CSS mask.
- *
- * Strategy:
- *  - The usable content height per page is pageHeight - topPadding - bottomPadding.
- *  - We walk each direct child (excluding existing spacers), and whenever a
- *    child would overflow the current page we insert a spacer BEFORE it. The
- *    spacer height equals the remaining space on the current page plus the
- *    visual gap plus both margins so the next child lands at the content area
- *    start of the next page.
- *  - Spacers are marked with data-page-break="true" so they can be identified.
- *  - If the existing spacers already match what is required, the DOM is left
- *    untouched and the function returns null (no state update needed).
- *  - Otherwise the old spacers are replaced and the new page count is returned.
+ * Binary-search for the last character offset within `el` whose rendered
+ * bottom is at or before `targetY` (relative to root's border-box top).
  */
+function findSplitOffset(
+  el: HTMLElement,
+  targetY: number,
+  rootTop: number,
+): { node: Text; offset: number } | null {
+  const range = document.createRange();
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let best: { node: Text; offset: number } | null = null;
+
+  let textNode: Text | null;
+  while ((textNode = walker.nextNode() as Text | null)) {
+    const len = textNode.length;
+    let lo = 0;
+    let hi = len;
+    let nodeBest = -1;
+
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, mid);
+      const rects = range.getClientRects();
+      const last = rects.length > 0 ? rects[rects.length - 1] : null;
+      if (last && last.bottom - rootTop <= targetY + 0.5) {
+        nodeBest = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    if (nodeBest >= 0) {
+      best = { node: textNode, offset: nodeBest };
+    }
+    if (nodeBest < len) break;
+  }
+
+  return best;
+}
+
+function createSpacer(height: number): HTMLElement {
+  const spacer = document.createElement("div");
+  spacer.setAttribute("data-page-break", "true");
+  spacer.setAttribute("contenteditable", "false");
+  spacer.style.height = `${height}px`;
+  spacer.style.display = "block";
+  spacer.style.pointerEvents = "none";
+  spacer.style.userSelect = "none";
+  return spacer;
+}
+
+/**
+ * Inserts invisible spacer divs into the content root so that block-level
+ * children never straddle two visual pages. When a block is taller than
+ * one page's content area and starts at a page boundary, we split the DOM
+ * element at the exact line where the page break falls and insert a spacer
+ * between the two halves. This is done iteratively until no block overflows.
+ *
+ * Coordinate model (all values relative to root's border-box top):
+ *   - Page N's content area spans:
+ *       contentStart = headerHeight + (N-1) * stride
+ *       contentEnd   = contentStart + contentH
+ *     where contentH = pageHeightPx - headerHeight - footerHeight
+ *     and   stride   = contentH + footerHeight + gapPx + headerHeight.
+ */
+let _applyingPageBreaks = false;
+
 function applyPageBreaks(
   root: HTMLElement,
   pageHeightPx: number,
-  topPadding: number,
-  bottomPadding: number,
+  headerHeight: number,
+  footerHeight: number,
   gapPx: number,
 ): number {
-  const contentHeightPerPage = pageHeightPx - topPadding - bottomPadding;
-  if (contentHeightPerPage <= 0) return 1;
+  if (_applyingPageBreaks) return -1;
+  _applyingPageBreaks = true;
 
-  const existingSpacers = Array.from(
-    root.querySelectorAll('[data-page-break="true"]'),
-  ) as HTMLElement[];
-  const contentChildren = Array.from(root.children).filter(
-    (el) => el.getAttribute("data-page-break") !== "true",
-  ) as HTMLElement[];
+  try {
+    return _applyPageBreaksInner(root, pageHeightPx, headerHeight, footerHeight, gapPx);
+  } finally {
+    _applyingPageBreaks = false;
+  }
+}
 
-  existingSpacers.forEach((s) => s.remove());
+function _applyPageBreaksInner(
+  root: HTMLElement,
+  pageHeightPx: number,
+  headerHeight: number,
+  footerHeight: number,
+  gapPx: number,
+): number {
+  const contentH = pageHeightPx - headerHeight - footerHeight;
+  if (contentH <= 0) return 1;
 
-  const rootRect = root.getBoundingClientRect();
+  root.querySelectorAll('[data-page-break="true"]').forEach((s) => s.remove());
 
-  let pageTop = topPadding;
-  let virtualOffset = 0;
-  let pageCount = 1;
-  const insertions: { before: HTMLElement; height: number }[] = [];
-
-  for (const child of contentChildren) {
-    const childRect = child.getBoundingClientRect();
-    const rawTop = childRect.top - rootRect.top;
-    const childTop = rawTop + virtualOffset;
-    const childBottom = childTop + childRect.height;
-    const pageStride = pageHeightPx + gapPx;
-
-    while (childTop >= pageTop + contentHeightPerPage) {
-      pageTop += pageStride;
-      pageCount += 1;
+  const continuations = Array.from(root.querySelectorAll('[data-page-continuation]')) as HTMLElement[];
+  for (const cont of continuations) {
+    const prevBlock = cont.previousElementSibling as HTMLElement | null;
+    if (prevBlock) {
+      while (cont.firstChild) prevBlock.appendChild(cont.firstChild);
     }
-
-    const pageBottom = pageTop + contentHeightPerPage;
-
-    if (childBottom > pageBottom) {
-      const remaining = pageBottom - childTop;
-      const spacerHeight = Math.max(0, remaining) + gapPx + bottomPadding + topPadding;
-      insertions.push({ before: child, height: spacerHeight });
-      virtualOffset += spacerHeight;
-      pageTop = childTop + spacerHeight;
-      pageCount += 1;
-    }
+    cont.remove();
   }
 
-  insertions.forEach(({ before, height }) => {
-    const spacer = document.createElement("div");
-    spacer.setAttribute("data-page-break", "true");
-    spacer.setAttribute("contenteditable", "false");
-    spacer.style.height = `${height}px`;
-    spacer.style.display = "block";
-    spacer.style.pointerEvents = "none";
-    spacer.style.userSelect = "none";
-    root.insertBefore(spacer, before);
-  });
+  const transitionH = footerHeight + gapPx + headerHeight;
+  const stride = contentH + transitionH;
+
+  for (let pass = 0; pass < 200; pass++) {
+    const children = Array.from(root.children).filter(
+      (el) => el.getAttribute("data-page-break") !== "true",
+    ) as HTMLElement[];
+
+    const rootTop = root.getBoundingClientRect().top;
+    let pageIdx = 0;
+    let needsAnotherPass = false;
+
+    for (const child of children) {
+      const rect = child.getBoundingClientRect();
+      const childTop = rect.top - rootTop;
+      const childBottom = rect.bottom - rootTop;
+
+      let contentStart = headerHeight + pageIdx * stride;
+      let contentEnd = contentStart + contentH;
+
+      while (childTop >= contentEnd - 0.5) {
+        pageIdx++;
+        contentStart = headerHeight + pageIdx * stride;
+        contentEnd = contentStart + contentH;
+      }
+
+      if (childBottom <= contentEnd + 0.5) continue;
+
+      const atPageStart = childTop <= contentStart + 1;
+
+      if (!atPageStart) {
+        const gap = contentEnd - childTop;
+        const h = Math.max(0, gap) + transitionH;
+        root.insertBefore(createSpacer(h), child);
+        needsAnotherPass = true;
+        break;
+      }
+
+      const bp = findSplitOffset(child, contentEnd, rootTop);
+      if (!bp || bp.offset === 0) {
+        pageIdx++;
+        continue;
+      }
+
+      const afterRange = document.createRange();
+      afterRange.setStart(bp.node, bp.offset);
+      afterRange.setEndAfter(child.lastChild || child);
+      const fragment = afterRange.extractContents();
+
+      const continuation = document.createElement(child.tagName.toLowerCase());
+      continuation.setAttribute("data-page-continuation", "true");
+      continuation.className = child.className;
+      const copiedStyle = child.getAttribute("style");
+      if (copiedStyle) continuation.setAttribute("style", copiedStyle);
+      continuation.appendChild(fragment);
+
+      const remaining = contentEnd - (child.getBoundingClientRect().bottom - rootTop);
+      const spacerH = Math.max(0, remaining) + transitionH;
+
+      child.after(createSpacer(spacerH), continuation);
+      needsAnotherPass = true;
+      break;
+    }
+
+    if (!needsAnotherPass) break;
+  }
+
+  let pageCount = 1;
+  const rootTop = root.getBoundingClientRect().top;
+  const allContent = Array.from(root.children).filter(
+    (el) => el.getAttribute("data-page-break") !== "true",
+  );
+  for (const el of allContent) {
+    const top = (el as HTMLElement).getBoundingClientRect().top - rootTop;
+    const pg = Math.floor((top - headerHeight + 0.5) / stride) + 1;
+    if (pg > pageCount) pageCount = pg;
+  }
 
   return pageCount;
 }
@@ -223,6 +325,15 @@ export function EditorShell() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
+  const {
+    config: pageLayoutConfig,
+    headerRef,
+    footerRef,
+    contentTopPadding,
+    contentBottomPadding,
+    updatePageSize,
+  } = usePageLayout(pageWidthPx, pageHeightPx);
+
   const getAssetDataUrl = useCallback((name: string): string | null => {
     const asset = assets.find((a) => a.name === name);
     return assetToDataUrl(asset ?? null);
@@ -258,19 +369,23 @@ export function EditorShell() {
   }, [service]);
 
   useEffect(() => {
+    updatePageSize(pageWidthPx, pageHeightPx);
+  }, [pageWidthPx, pageHeightPx, updatePageSize]);
+
+  useEffect(() => {
     let rafId: number | null = null;
 
     const render = () => {
       const root = rootRef.current;
       const doc = service.getDocument();
       if (!root || !doc) return;
-      
+
       if (!service.selection && doc.getText().length === 0) {
         service.setSelectionFromOffsets(0, 0);
       }
       const hadSelection = service.selection;
       renderDocument(root, doc, getAssetDataUrl);
-      
+
       if (hadSelection) {
         const offsets = service.selection;
         if (offsets) {
@@ -287,18 +402,17 @@ export function EditorShell() {
         root.focus();
       }
 
-      // Schedule page-break insertion after layout is complete.
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         rafId = null;
         const newPageCount = applyPageBreaks(
           root,
           pageHeightPx,
-          PAGE_PADDING,
-          PAGE_PADDING,
-          PAGE_GAP_PX,
+          contentTopPadding,
+          contentBottomPadding,
+          pageLayoutConfig.gapPx,
         );
-        setPageCount(newPageCount);
+        if (newPageCount > 0) setPageCount(newPageCount);
       });
     };
 
@@ -308,7 +422,7 @@ export function EditorShell() {
       unsub();
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [service, getAssetDataUrl, pageHeightPx]);
+  }, [service, getAssetDataUrl, pageHeightPx, contentTopPadding, contentBottomPadding, pageLayoutConfig.gapPx]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -340,24 +454,12 @@ export function EditorShell() {
     const container = paginatedContainerRef.current;
     if (!container) return;
 
-    let resizeObserver: ResizeObserver | null = null;
-
     const updateScrollPosition = () => {
-      const editorContent = rootRef.current;
-      if (!editorContent) return;
-      
-      const newPageCount = applyPageBreaks(
-        editorContent,
-        pageHeightPx,
-        PAGE_PADDING,
-        PAGE_PADDING,
-        PAGE_GAP_PX,
-      );
-      setPageCount((prev) => (prev === newPageCount ? prev : newPageCount));
-      
+      if (!container) return;
+
       const scrollTop = container.scrollTop;
-      const pageHeight = pageHeightPx + PAGE_GAP_PX;
-      const newPage = Math.max(1, Math.min(newPageCount, Math.floor(scrollTop / pageHeight) + 1));
+      const pageHeight = pageHeightPx + pageLayoutConfig.gapPx;
+      const newPage = Math.max(1, Math.min(pageCount, Math.floor(scrollTop / pageHeight) + 1));
       setCurrentPage((prev) => (prev === newPage ? prev : newPage));
     };
 
@@ -378,30 +480,18 @@ export function EditorShell() {
       }
     };
 
-    const setupObserver = () => {
-      const editorContent = rootRef.current;
-      if (!editorContent) {
-        requestAnimationFrame(setupObserver);
-        return;
-      }
-      
-      resizeObserver = new ResizeObserver(throttledUpdate);
-      resizeObserver.observe(editorContent);
-      updateScrollPosition();
-    };
-    
-    setupObserver();
-    
+    updateScrollPosition();
+
     container.addEventListener("scroll", throttledUpdate);
-    document.addEventListener("selectionchange", throttledUpdate);
 
     return () => {
-      resizeObserver?.disconnect();
       container.removeEventListener("scroll", throttledUpdate);
-      document.removeEventListener("selectionchange", throttledUpdate);
       if (throttleId) clearTimeout(throttleId);
     };
-  }, [pageHeightPx]);
+  }, [pageHeightPx, pageCount, pageLayoutConfig.gapPx]);
+
+  const contentAreaHeight = getContentAreaHeight(pageLayoutConfig);
+  const totalPageHeight = pageHeightPx + pageLayoutConfig.gapPx;
 
   return (
     <EditorProvider service={service} rootRef={rootRef}>
@@ -429,11 +519,11 @@ export function EditorShell() {
               <div className="sticky top-3 z-20 mx-auto w-fit rounded-full border border-zinc-300 bg-white/95 px-3 py-1 text-xs font-semibold text-zinc-700 shadow-sm">
                 Page {currentPage} / {Math.max(pageCount, 1)}
               </div>
-              
+
               <div className="flex flex-col items-center pt-4 pb-8 px-4">
-                <div 
-                  className="relative" 
-                  style={{ 
+                <div
+                  className="relative"
+                  style={{
                     width: pageWidthPx,
                   }}
                 >
@@ -442,7 +532,7 @@ export function EditorShell() {
                       key={`page-bg-${i}`}
                       className="bg-white shadow-lg absolute"
                       style={{
-                        top: i * (pageHeightPx + PAGE_GAP_PX),
+                        top: i * totalPageHeight,
                         left: 0,
                         right: 0,
                         height: pageHeightPx,
@@ -450,36 +540,41 @@ export function EditorShell() {
                       }}
                     />
                   ))}
-                  
+
                   <div
                     className="relative"
-                    style={{ 
-                      minHeight: pageCount * pageHeightPx + (pageCount - 1) * PAGE_GAP_PX,
+                    style={{
+                      minHeight: pageCount * pageHeightPx + (pageCount - 1) * pageLayoutConfig.gapPx,
                       zIndex: 1,
                     }}
                   >
                     <ContentEditableRoot
-                      className="editor-content paged px-12 pt-12 outline-none"
-                      style={{ minHeight: pageHeightPx - PAGE_PADDING }}
+                      className="editor-content paged outline-none"
+                      style={{
+                        minHeight: contentAreaHeight,
+                        paddingTop: contentTopPadding,
+                        paddingBottom: contentBottomPadding,
+                        paddingLeft: 48,
+                        paddingRight: 48,
+                      }}
                       getAssetDataUrl={getAssetDataUrl}
                       data-testid="editor-content"
                     />
                   </div>
-                  
+
                   {Array.from({ length: Math.max(1, pageCount) }, (_, i) => (
                     <div
                       key={`page-hf-${i}`}
-                      className="absolute pointer-events-none"
+                      className="absolute left-0 right-0 pointer-events-none"
                       style={{
-                        top: i * (pageHeightPx + PAGE_GAP_PX),
-                        left: 0,
-                        right: 0,
+                        top: i * totalPageHeight,
                         height: pageHeightPx,
-                        zIndex: 2,
+                        zIndex: 10,
                       }}
                     >
-                      <div className="pointer-events-auto">
+                      <div className="absolute left-0 right-0 pointer-events-auto" style={{ top: 0 }}>
                         <HeaderFooter
+                          ref={i === 0 ? headerRef : undefined}
                           type="header"
                           content={headerContent}
                           pageNumber={i + 1}
@@ -487,7 +582,10 @@ export function EditorShell() {
                           pageWidth={pageWidthPx}
                           onContentChange={handleHeaderChange}
                         />
+                      </div>
+                      <div className="absolute left-0 right-0 pointer-events-auto" style={{ bottom: 0 }}>
                         <HeaderFooter
+                          ref={i === 0 ? footerRef : undefined}
                           type="footer"
                           content={footerContent}
                           pageNumber={i + 1}
@@ -497,6 +595,20 @@ export function EditorShell() {
                         />
                       </div>
                     </div>
+                  ))}
+
+                  {Array.from({ length: Math.max(1, pageCount - 1) }, (_, i) => (
+                    <div
+                      key={`page-gap-${i}`}
+                      className="absolute pointer-events-none bg-zinc-300"
+                      style={{
+                        top: (i + 1) * pageHeightPx + i * pageLayoutConfig.gapPx,
+                        left: 0,
+                        right: 0,
+                        height: pageLayoutConfig.gapPx,
+                        zIndex: 0,
+                      }}
+                    />
                   ))}
                 </div>
               </div>
