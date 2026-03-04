@@ -29,7 +29,6 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
     const toolbarRef = useRef<HTMLDivElement>(null);
     const savedSelectionRef = useRef<Range | null>(null);
     const prevIsEditingRef = useRef(false);
-    const editStartTimeRef = useRef<number>(0);
 
     const getDisplayText = useCallback(
       (text: string | undefined): string => {
@@ -62,6 +61,16 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
       setIsEditing(true);
     }, [isEditing]);
 
+    const handleDone = useCallback(() => {
+      const contentEl = contentRef.current;
+      if (!contentEl) return;
+
+      const html = contentEl.innerHTML;
+      onContentChange(html ? { center: html } : {});
+      setIsEditing(false);
+      savedSelectionRef.current = null;
+    }, [onContentChange]);
+
     const insertVariable = useCallback((variable: string) => {
       const contentEl = contentRef.current;
       if (!contentEl) return;
@@ -84,11 +93,14 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
       selection.removeAllRanges();
       selection.addRange(newRange);
       savedSelectionRef.current = newRange;
+
+      contentEl.scrollTop = contentEl.scrollHeight;
     }, [restoreSelection]);
 
-    const handleBlur = useCallback(() => {
-      if (Date.now() - editStartTimeRef.current < 200) return;
-      if (toolbarRef.current?.contains(document.activeElement)) return;
+    const handleBlur = useCallback((e: React.FocusEvent) => {
+      if (toolbarRef.current?.contains(e.relatedTarget)) {
+        return;
+      }
 
       const contentEl = contentRef.current;
       if (!contentEl) return;
@@ -102,42 +114,58 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent) => {
         if (e.key === "Escape") {
-          const contentEl = contentRef.current;
-          if (contentEl) {
-            contentEl.innerHTML = textContent;
-            setIsEditing(false);
-            savedSelectionRef.current = null;
-          }
+          e.preventDefault();
+          setIsEditing(false);
+          savedSelectionRef.current = null;
+          return;
+        }
+
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const selection = window.getSelection();
+          if (!selection || selection.rangeCount === 0) return;
+
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+
+          const br = document.createElement("br");
+          range.insertNode(br);
+
+          const newRange = document.createRange();
+          newRange.setStartAfter(br);
+          newRange.setEndAfter(br);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          savedSelectionRef.current = newRange;
           return;
         }
 
         saveSelection();
       },
-      [textContent, saveSelection],
+      [saveSelection],
     );
 
     useEffect(() => {
       const contentEl = contentRef.current;
       if (!contentEl) return;
-  
+
       const isEnteringEditMode = isEditing && !prevIsEditingRef.current;
       prevIsEditingRef.current = isEditing;
-  
+
       if (isEnteringEditMode) {
-        editStartTimeRef.current = Date.now();
         contentEl.innerHTML = textContent;
         contentEl.focus();
-  
+
         const range = document.createRange();
         const sel = window.getSelection();
-  
+
         if (contentEl.childNodes.length > 0) {
           range.selectNodeContents(contentEl);
         } else {
           range.setStart(contentEl, 0);
           range.setEnd(contentEl, 0);
         }
-  
+
         sel?.removeAllRanges();
         sel?.addRange(range);
         savedSelectionRef.current = range;
@@ -202,10 +230,7 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
             <button
               type="button"
               className="px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-50 rounded font-medium"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                handleBlur();
-              }}
+              onClick={handleDone}
             >
               Done
             </button>
@@ -221,11 +246,7 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
               : "cursor-default"
           }`}
           onDoubleClick={handleDoubleClick}
-          onBlur={(e) => {
-            if (!toolbarRef.current?.contains(e.relatedTarget)) {
-              handleBlur();
-            }
-          }}
+          onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           onInput={saveSelection}
           onMouseUp={saveSelection}
