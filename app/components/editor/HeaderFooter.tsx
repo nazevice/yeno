@@ -28,7 +28,8 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
     const contentRef = useRef<HTMLDivElement>(null);
     const toolbarRef = useRef<HTMLDivElement>(null);
     const savedSelectionRef = useRef<Range | null>(null);
-    const didInitRef = useRef(false);
+    const prevIsEditingRef = useRef(false);
+    const editStartTimeRef = useRef<number>(0);
 
     const getDisplayText = useCallback(
       (text: string | undefined): string => {
@@ -55,9 +56,11 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
       }
     }, []);
 
-    const handleDoubleClick = useCallback(() => {
+    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+      e.preventDefault();
+      if (isEditing) return;
       setIsEditing(true);
-    }, []);
+    }, [isEditing]);
 
     const insertVariable = useCallback((variable: string) => {
       const contentEl = contentRef.current;
@@ -84,6 +87,7 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
     }, [restoreSelection]);
 
     const handleBlur = useCallback(() => {
+      if (Date.now() - editStartTimeRef.current < 200) return;
       if (toolbarRef.current?.contains(document.activeElement)) return;
 
       const contentEl = contentRef.current;
@@ -115,27 +119,29 @@ export const HeaderFooter = forwardRef<HTMLDivElement, HeaderFooterProps>(
     useEffect(() => {
       const contentEl = contentRef.current;
       if (!contentEl) return;
-
-      if (isEditing && !didInitRef.current) {
-        didInitRef.current = true;
+  
+      const isEnteringEditMode = isEditing && !prevIsEditingRef.current;
+      prevIsEditingRef.current = isEditing;
+  
+      if (isEnteringEditMode) {
+        editStartTimeRef.current = Date.now();
         contentEl.innerHTML = textContent;
         contentEl.focus();
-
+  
         const range = document.createRange();
         const sel = window.getSelection();
-
+  
         if (contentEl.childNodes.length > 0) {
           range.selectNodeContents(contentEl);
         } else {
           range.setStart(contentEl, 0);
           range.setEnd(contentEl, 0);
         }
-
+  
         sel?.removeAllRanges();
         sel?.addRange(range);
         savedSelectionRef.current = range;
       } else if (!isEditing) {
-        didInitRef.current = false;
         contentEl.innerHTML = getDisplayText(textContent);
       }
     }, [isEditing, textContent, getDisplayText]);
