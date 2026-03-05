@@ -1,5 +1,5 @@
 import type { SectionId, BlockId } from "../../shared/NodeId";
-import type { Block } from "./index";
+import type { Block } from "./BlockUnion";
 import type { SectionLayout } from "../value-objects/SectionLayout";
 import { Table } from "./Table";
 

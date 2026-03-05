@@ -1,4 +1,5 @@
 export type { BlockBase, BlockType } from "./Block";
+export type { Block, TextBlock } from "./BlockUnion";
 export type { Paragraph } from "./Paragraph";
 export type { Heading, HeadingLevel } from "./Heading";
 export type { Table, TableRow, TableCell, TableCellChild } from "./Table";
@@ -8,6 +9,7 @@ export type { Blockquote, BlockquoteChild } from "./Blockquote";
 export type { Section } from "./Section";
 export type { TocBlock } from "./TocBlock";
 
+import type { Block, TextBlock } from "./BlockUnion";
 import type { Paragraph } from "./Paragraph";
 import type { Heading } from "./Heading";
 import type { Table } from "./Table";
@@ -15,9 +17,6 @@ import type { Image } from "./Image";
 import type { List } from "./List";
 import type { Blockquote } from "./Blockquote";
 import type { TocBlock } from "./TocBlock";
-
-export type Block = Paragraph | Heading | Table | Image | List | Blockquote | TocBlock;
-export type TextBlock = Paragraph | Heading;
 
 export function isTextBlock(block: Block): block is TextBlock {
   return block.type === "paragraph" || block.type === "heading";
